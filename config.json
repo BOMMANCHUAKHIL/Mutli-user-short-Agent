@@ -1,0 +1,7 @@
+{
+  "duration": 15,
+  "fps": 24,
+  "privacy": "public",
+  "question_seconds": 10,
+  "allow_ai_fallback": true
+}

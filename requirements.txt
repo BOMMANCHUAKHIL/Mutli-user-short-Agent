@@ -1,0 +1,15 @@
+streamlit
+supabase
+cryptography
+python-dotenv
+groq
+requests
+jinja2
+pillow
+numpy
+playwright
+moviepy==1.0.3
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
