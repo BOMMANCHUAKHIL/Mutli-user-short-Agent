@@ -32,8 +32,16 @@ class ShortsOrchestrator:
     def __init__(self, groq_key: str, pixabay_keys: str, topic: str, subtopic: str = "",
                  language: str = "English", mode: str = "table", system_prompt: str | None = None,
                  html_template: str | None = None, pexels_key: str | None = None,
-                 youtube_token: str | None = None, facebook_page_id: str | None = None,
-                 facebook_token: str | None = None, watermark: str = "", config: dict | None = None):
+                 youtube_token: str | None = None,
+                 facebook_page_id: str | None = None,
+                 facebook_token: str | None = None,
+                 watermark: str = "",
+                 youtube_profile_pic: str | None = None,
+                 facebook_profile_pic: str | None = None,
+                 youtube_watermark: str = "",
+                 facebook_watermark: str = "",
+                 subscribe_gif: str | None = None,
+                 config: dict | None = None,):
         self.cfg = config or load_config()
         self.topic, self.sub = topic, subtopic
         self.language = language or "English"

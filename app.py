@@ -14,6 +14,28 @@ import streamlit.components.v1 as components
 
 from src.auth import require_login, get_client, sign_out
 from src.crypto_utils import encrypt_key
+def upload_branding_image(uploaded_file, platform: str) -> str | None:
+    if uploaded_file is None:
+        return None
+
+    file_ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
+    allowed_extensions = {"png", "jpg", "jpeg", "webp"}
+
+    if file_ext not in allowed_extensions:
+        raise ValueError("Unsupported profile picture format.")
+
+    file_path = f"{user['id']}/{platform}.{file_ext}"
+
+    sb.storage.from_("branding").upload(
+        path=file_path,
+        file=uploaded_file.getvalue(),
+        file_options={
+            "content-type": uploaded_file.type,
+            "upsert": "true",
+        },
+    )
+
+    return sb.storage.from_("branding").get_public_url(file_path)
 from src.poster_composer import TABLE_TEMPLATE, render_html
 st.set_page_config(page_title="Shorts Agent", page_icon="🎬", layout="wide")
 
@@ -186,27 +208,62 @@ with tab_publish:
 
 # ── SAVE ──
 st.divider()
+
 if st.button("💾 Save settings", type="primary", use_container_width=True):
-    row = {
-        "user_id": user["id"], "email": user["email"],
-        "main_topic": main_topic.strip(), "sub_topics": sub_topics.strip(),
-        "content_mode": content_mode, "language": language.strip() or "English",
-        "youtube_profile_pic_url": cfg.get("youtube_profile_pic_url"),
-        "youtube_watermark": youtube_watermark.strip() or None,
-        "facebook_profile_pic_url": cfg.get("facebook_profile_pic_url"),
-        "facebook_watermark": facebook_watermark.strip() or None,
-        "system_prompt": system_prompt, "html_template": html_template,
-        "facebook_page_id": facebook_page_id.strip() or None,
-        "is_active": is_active,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    for field, value in [("groq_key", groq_key), ("pixabay_keys", pixabay_keys), ("pexels_key", pexels_key),
-                         ("youtube_token", youtube_token), ("facebook_token", facebook_token)]:
-        if value.strip():
-            row[field] = encrypt_key(value.strip())
     try:
-        sb.table("user_configs").upsert(row, on_conflict="user_id").execute()
-        st.success("Saved.")
+        # Keep existing images unless new ones are uploaded
+        youtube_profile_pic_url = cfg.get("youtube_profile_pic_url")
+        facebook_profile_pic_url = cfg.get("facebook_profile_pic_url")
+
+        # Upload new YouTube profile picture
+        if youtube_profile_pic is not None:
+            youtube_profile_pic_url = upload_branding_image(
+                youtube_profile_pic, "youtube"
+            )
+
+        # Upload new Facebook profile picture
+        if facebook_profile_pic is not None:
+            facebook_profile_pic_url = upload_branding_image(
+                facebook_profile_pic, "facebook"
+            )
+
+        row = {
+            "user_id": user["id"],
+            "email": user["email"],
+            "main_topic": main_topic.strip(),
+            "sub_topics": sub_topics.strip(),
+            "content_mode": content_mode,
+            "language": language.strip() or "English",
+
+            "youtube_profile_pic_url": youtube_profile_pic_url,
+            "youtube_watermark": youtube_watermark.strip() or None,
+
+            "facebook_profile_pic_url": facebook_profile_pic_url,
+            "facebook_watermark": facebook_watermark.strip() or None,
+
+            "system_prompt": system_prompt,
+            "html_template": html_template,
+            "facebook_page_id": facebook_page_id.strip() or None,
+            "is_active": is_active,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        for field, value in [
+            ("groq_key", groq_key),
+            ("pixabay_keys", pixabay_keys),
+            ("pexels_key", pexels_key),
+            ("youtube_token", youtube_token),
+            ("facebook_token", facebook_token),
+        ]:
+            if value.strip():
+                row[field] = encrypt_key(value.strip())
+
+        sb.table("user_configs").upsert(
+            row, on_conflict="user_id"
+        ).execute()
+
+        st.success("Settings and branding images saved successfully!")
         st.rerun()
+
     except Exception as e:
-        st.error(f"Could not save: {e}")
+        st.error(f"Could not save settings: {e}")
