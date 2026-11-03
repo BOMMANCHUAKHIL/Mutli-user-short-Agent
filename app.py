@@ -118,6 +118,12 @@ with tab_topic:
     if cfg.get("youtube_profile_pic_url"):
         st.image(cfg["youtube_profile_pic_url"], width=120)
 
+    youtube_watermark = st.text_input(
+        "YouTube watermark / Channel handle",
+        value=cfg.get("youtube_watermark") or "",
+        placeholder="@KathaZap"
+    )
+
     st.subheader("Facebook Branding")
 
     facebook_profile_pic = st.file_uploader(
@@ -130,6 +136,11 @@ with tab_topic:
         st.image(cfg["facebook_profile_pic_url"], width=120)
     system_prompt = st.text_area("Extra instructions for the AI", value=cfg.get("system_prompt") or DEFAULT_SYSTEM_PROMPT,
                                  height=110)
+    facebook_watermark = st.text_input(
+        "Facebook watermark / Page name",
+        value=cfg.get("facebook_watermark") or "",
+        placeholder="KathaZap"
+    )
 
 # ── TAB 2: keys ──
 with tab_keys:
@@ -180,7 +191,10 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
         "user_id": user["id"], "email": user["email"],
         "main_topic": main_topic.strip(), "sub_topics": sub_topics.strip(),
         "content_mode": content_mode, "language": language.strip() or "English",
-        "watermark": watermark.strip() or None,
+        "youtube_profile_pic_url": cfg.get("youtube_profile_pic_url"),
+        "youtube_watermark": youtube_watermark.strip() or None,
+        "facebook_profile_pic_url": cfg.get("facebook_profile_pic_url"),
+        "facebook_watermark": facebook_watermark.strip() or None,
         "system_prompt": system_prompt, "html_template": html_template,
         "facebook_page_id": facebook_page_id.strip() or None,
         "is_active": is_active,
