@@ -14,6 +14,13 @@ import streamlit.components.v1 as components
 
 from src.auth import require_login, get_client, sign_out
 from src.crypto_utils import encrypt_key
+
+from src.poster_composer import TABLE_TEMPLATE, render_html
+st.set_page_config(page_title="Shorts Agent", page_icon="🎬", layout="wide")
+
+# ── 1. LOGIN GATE ── nothing below runs until a user is logged in
+user = require_login()
+sb = get_client()
 def upload_branding_image(uploaded_file, platform: str) -> str | None:
     if uploaded_file is None:
         return None
@@ -36,13 +43,6 @@ def upload_branding_image(uploaded_file, platform: str) -> str | None:
     )
 
     return sb.storage.from_("branding").get_public_url(file_path)
-from src.poster_composer import TABLE_TEMPLATE, render_html
-st.set_page_config(page_title="Shorts Agent", page_icon="🎬", layout="wide")
-
-# ── 1. LOGIN GATE ── nothing below runs until a user is logged in
-user = require_login()
-sb = get_client()
-
 DEFAULT_SYSTEM_PROMPT = (
     "You create accurate, engaging short-form video content. "
     "Every image query must describe exactly what the label says."
@@ -215,13 +215,11 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
         youtube_profile_pic_url = cfg.get("youtube_profile_pic_url")
         facebook_profile_pic_url = cfg.get("facebook_profile_pic_url")
 
-        # Upload new YouTube profile picture
         if youtube_profile_pic is not None:
             youtube_profile_pic_url = upload_branding_image(
                 youtube_profile_pic, "youtube"
             )
 
-        # Upload new Facebook profile picture
         if facebook_profile_pic is not None:
             facebook_profile_pic_url = upload_branding_image(
                 facebook_profile_pic, "facebook"
@@ -235,9 +233,11 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
             "content_mode": content_mode,
             "language": language.strip() or "English",
 
+            # YouTube branding
             "youtube_profile_pic_url": youtube_profile_pic_url,
             "youtube_watermark": youtube_watermark.strip() or None,
 
+            # Facebook branding
             "facebook_profile_pic_url": facebook_profile_pic_url,
             "facebook_watermark": facebook_watermark.strip() or None,
 
