@@ -42,6 +42,13 @@ class ShortsOrchestrator:
         self.watermark = watermark or ""
         self.yt_token = youtube_token
         self.fb_page, self.fb_token = facebook_page_id, facebook_token
+        self.youtube_profile_pic = youtube_profile_pic
+        self.facebook_profile_pic = facebook_profile_pic
+
+        self.youtube_watermark = youtube_watermark
+        self.facebook_watermark = facebook_watermark
+
+        self.subscribe_gif = subscribe_gif
 
         self.pool = GroqPool(groq_key)
         self.gen = ContentGenerator(self.pool, self.language, system_prompt)
