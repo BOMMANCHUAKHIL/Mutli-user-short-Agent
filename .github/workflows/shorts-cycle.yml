@@ -15,6 +15,13 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Restore music rotation state
+        uses: actions/cache@v4
+        with:
+          path: output/state.json
+          key: music-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            music-state-
 
       - uses: actions/setup-python@v5
         with:

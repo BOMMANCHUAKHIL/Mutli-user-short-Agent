@@ -107,8 +107,27 @@ with tab_topic:
                                 format_func=lambda k: MODES[k])
     language = st.text_input("Label language", value=cfg.get("language", "English"),
                              help="e.g. English, Telugu, Hindi")
-    watermark = st.text_input("Watermark text (shown at the bottom of every poster)",
-                              value=cfg.get("watermark") or "")
+    st.subheader("YouTube Branding")
+
+    youtube_profile_pic = st.file_uploader(
+        "YouTube profile picture",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="youtube_profile_pic_upload"
+    )
+
+    if cfg.get("youtube_profile_pic_url"):
+        st.image(cfg["youtube_profile_pic_url"], width=120)
+
+    st.subheader("Facebook Branding")
+
+    facebook_profile_pic = st.file_uploader(
+        "Facebook Page profile picture",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="facebook_profile_pic_upload"
+    )
+
+    if cfg.get("facebook_profile_pic_url"):
+        st.image(cfg["facebook_profile_pic_url"], width=120)
     system_prompt = st.text_area("Extra instructions for the AI", value=cfg.get("system_prompt") or DEFAULT_SYSTEM_PROMPT,
                                  height=110)
 
