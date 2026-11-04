@@ -58,6 +58,7 @@ def run_multi_user_cycle():
         sub = pick_prompt(user.get("sub_topics"))
         print(f"Topic: {topic} | sub-topic: {sub or '(none)'} | mode: {user.get('content_mode')}")
         try:
+            # --- THIS IS THE CRITICAL PART THAT WAS MISSING ---
             orch = ShortsOrchestrator(
                 groq_key=groq, pixabay_keys=pixabay, pexels_key=pexels,
                 topic=topic, subtopic=sub,
@@ -66,8 +67,15 @@ def run_multi_user_cycle():
                 system_prompt=user.get("system_prompt"),
                 html_template=user.get("html_template"),
                 youtube_token=yt, facebook_page_id=fb_page, facebook_token=fb_token,
-                watermark=user.get("watermark") or "",
+
+                # Passing the Supabase URLs and Watermarks
+                youtube_profile_pic=user.get("youtube_profile_pic_url"),
+                facebook_profile_pic=user.get("facebook_profile_pic_url"),
+                youtube_watermark=user.get("youtube_watermark") or "",
+                facebook_watermark=user.get("facebook_watermark") or "",
             )
+            # --------------------------------------------------
+
             r = orch.run_cycle()
             msg = f"OK {r['mode']}: {r['youtube_url'] or ''} {r['facebook_video_id'] or ''}".strip()
             if r["errors"]:
