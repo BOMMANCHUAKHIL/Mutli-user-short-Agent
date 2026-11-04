@@ -103,7 +103,7 @@ class ShortsOrchestrator:
         self.youtube_watermark = youtube_watermark
         self.facebook_watermark = facebook_watermark
 
-        self.subscribe_gif = subscribe_gif
+        self.subscribe_gif =  subscribe_gif or str(ROOT / "assets" / "branding" / "subscribe.gif")
 
         self.pool = GroqPool(groq_key)
         self.gen = ContentGenerator(self.pool, self.language, system_prompt)
