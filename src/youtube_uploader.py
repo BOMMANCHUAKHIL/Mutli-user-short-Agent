@@ -1,16 +1,16 @@
-"""YouTube upload using an OAuth token stored as JSON (no pickle files).
-
-Create the token JSON once per channel with scripts/get_youtube_token.py and paste it
-into the dashboard. It holds a refresh token, so the worker can upload unattended.
-"""
+"""YouTube upload using an OAuth token stored as JSON (no pickle files)."""
 import json
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
+# Create a custom error to identify restrictions
+class YouTubeRestrictedError(Exception):
+    pass
 
 def upload_short(token_json: str, video_path: str, title: str, description: str,
                  tags: list[str] | None = None, privacy: str = "public") -> str:
@@ -32,7 +32,16 @@ def upload_short(token_json: str, video_path: str, title: str, description: str,
     }
     media = MediaFileUpload(video_path, mimetype="video/mp4", resumable=True, chunksize=-1)
     req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
-    resp = None
-    while resp is None:
-        _, resp = req.next_chunk()
-    return f"https://youtube.com/shorts/{resp['id']}"
+
+    try:
+        resp = None
+        while resp is None:
+            _, resp = req.next_chunk()
+        return f"https://youtube.com/shorts/{resp['id']}"
+    except HttpError as e:
+        # 403 is usually quota exceeded or account restricted
+        if e.resp.status in [400, 401, 403]:
+            content = e.content.decode("utf-8")
+            if "quotaExceeded" in content or "uploadLimitExceeded" in content or e.resp.status == 403:
+                raise YouTubeRestrictedError("YouTube API limit reached or account restricted.") from e
+        raise

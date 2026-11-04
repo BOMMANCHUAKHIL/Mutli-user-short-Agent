@@ -14,7 +14,7 @@ from .reviewer_agent import find_mismatches
 from .telugu_generator import ContentGenerator, TABLE_ROWS_NEEDED
 from .video_composer import compose_video, _next_music
 from .youtube_uploader import upload_short
-
+from .youtube_uploader import upload_short, YouTubeRestrictedError
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output"
 
@@ -94,6 +94,7 @@ class ShortsOrchestrator:
         self.language = language or "English"
         self.mode = mode if mode in ("table", "story", "puzzle", "mixed") else "table"
         self.html_template = html_template
+        self.watermark = watermark or ""
         self.watermark = watermark or ""
         self.yt_token = youtube_token
         self.fb_page, self.fb_token = facebook_page_id, facebook_token
@@ -270,9 +271,19 @@ class ShortsOrchestrator:
                     self.cfg["privacy"],
                 )
 
+
+            except YouTubeRestrictedError as exc:
+
+                result["errors"].append(f"youtube_restricted: {str(exc)}")
+
+                result["youtube_restricted"] = True  # <--- FLAG IT
+
             except Exception as exc:
+
                 result["errors"].append(
+
                     f"youtube: {str(exc)[:300]}"
+
                 )
 
         # ------------------------------------
