@@ -3,7 +3,15 @@ from supabase import create_client, Client
 
 
 def _new_client() -> Client:
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_KEY"])
+    # Safely fetch secrets, preventing a hard crash if they are missing
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_ANON_KEY"]
+    except KeyError:
+        st.error("🚨 Missing Secrets! Please add SUPABASE_URL and SUPABASE_ANON_KEY to your Streamlit Secrets.")
+        st.stop()
+
+    return create_client(url, key)
 
 
 def get_client() -> Client:
@@ -53,29 +61,30 @@ def _store(res) -> None:
 
 def handle_auth_callback():
     """Handles the redirect back from Google OAuth."""
-    sb = get_client()
-    
-    # Streamlit passes the auth token in the URL fragment (hash)
-    query_params = st.query_params
-    
-    if "access_token" in query_params:
-        try:
-            # Set the session using the token from the URL
+    # Only attempt this if the session state is empty
+    if "user" in st.session_state:
+        return
+
+    try:
+        sb = get_client()
+        query_params = st.query_params
+
+        if "access_token" in query_params:
             session = sb.auth.set_session(
                 access_token=query_params["access_token"],
                 refresh_token=query_params.get("refresh_token", "")
             )
             st.session_state.user = {"id": session.user.id, "email": session.user.email}
             get_client().postgrest.auth(session.session.access_token)
-            
-            st.query_params.clear() # Clear the URL
+
+            st.query_params.clear()
             st.rerun()
-        except Exception as e:
-            st.error(f"Authentication failed: {e}")
+    except Exception as e:
+        st.error(f"Authentication failed: {e}")
 
 
 def require_login() -> dict:
-    """Show the login/sign-up screen (Google + Email/Password) and stop the page until the user is logged in."""
+    """Show the login/sign-up screen (Google + Email/Password)."""
     user = current_user()
     if user:
         return user
@@ -86,20 +95,19 @@ def require_login() -> dict:
     # --- GOOGLE LOGIN SECTION ---
     st.subheader("Sign in with Google")
     try:
-        # Generate the Google OAuth URL
         auth_url = get_client().auth.sign_in_with_oauth({
             "provider": "google",
             "options": {
-                "redirect_to": "http://localhost:8501"  # CHANGE THIS to your live app URL
+                # IMPORTANT: Change this to your actual Streamlit URL when deployed!
+                "redirect_to": "https://usaamus.streamlit.app/"
             }
         })
-        
-        # Render the styled Google button
+
         st.markdown(
             f'<a href="{auth_url.url}" target="_self">'
             f'<button style="background-color:#4285F4;color:white;padding:10px 20px;border:none;'
             f'border-radius:5px;font-size:16px;cursor:pointer;width:100%;">'
-            f'Sign in with Google</button></a>', 
+            f'Sign in with Google</button></a>',
             unsafe_allow_html=True
         )
     except Exception as e:
