@@ -1,8 +1,3 @@
-"""Multi-user authentication on top of Supabase Auth.
-
-Important: the authenticated client lives in st.session_state (one per browser
-session). Never put it in st.cache_resource, or users would share a login.
-"""
 import streamlit as st
 from supabase import create_client, Client
 
@@ -25,7 +20,7 @@ def sign_up(email: str, password: str) -> str:
     """Returns a message to show the user."""
     sb = get_client()
     res = sb.auth.sign_up({"email": email, "password": password})
-    if res.session:                      # email confirmation disabled -> logged in at once
+    if res.session:  # email confirmation disabled -> logged in at once
         _store(res)
         return "Account created. You are logged in."
     return "Account created. Check your email and click the confirmation link, then log in."
@@ -56,14 +51,64 @@ def _store(res) -> None:
     get_client().postgrest.auth(res.session.access_token)
 
 
+def handle_auth_callback():
+    """Handles the redirect back from Google OAuth."""
+    sb = get_client()
+    
+    # Streamlit passes the auth token in the URL fragment (hash)
+    query_params = st.query_params
+    
+    if "access_token" in query_params:
+        try:
+            # Set the session using the token from the URL
+            session = sb.auth.set_session(
+                access_token=query_params["access_token"],
+                refresh_token=query_params.get("refresh_token", "")
+            )
+            st.session_state.user = {"id": session.user.id, "email": session.user.email}
+            get_client().postgrest.auth(session.session.access_token)
+            
+            st.query_params.clear() # Clear the URL
+            st.rerun()
+        except Exception as e:
+            st.error(f"Authentication failed: {e}")
+
+
 def require_login() -> dict:
-    """Show the login/sign-up screen and stop the page until the user is logged in."""
+    """Show the login/sign-up screen (Google + Email/Password) and stop the page until the user is logged in."""
     user = current_user()
     if user:
         return user
 
     st.title("🎬 Shorts Agent")
     st.caption("Log in or create an account to set up your own automated Shorts channel.")
+
+    # --- GOOGLE LOGIN SECTION ---
+    st.subheader("Sign in with Google")
+    try:
+        # Generate the Google OAuth URL
+        auth_url = get_client().auth.sign_in_with_oauth({
+            "provider": "google",
+            "options": {
+                "redirect_to": "http://localhost:8501"  # CHANGE THIS to your live app URL
+            }
+        })
+        
+        # Render the styled Google button
+        st.markdown(
+            f'<a href="{auth_url.url}" target="_self">'
+            f'<button style="background-color:#4285F4;color:white;padding:10px 20px;border:none;'
+            f'border-radius:5px;font-size:16px;cursor:pointer;width:100%;">'
+            f'Sign in with Google</button></a>', 
+            unsafe_allow_html=True
+        )
+    except Exception as e:
+        st.error(f"Error setting up Google Login: {e}")
+
+    st.divider()
+    st.caption("Or use your email and password")
+
+    # --- EMAIL/PASSWORD SECTION ---
     tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
 
     with tab_login:
