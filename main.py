@@ -1,7 +1,7 @@
 """Multi-user worker run by GitHub Actions: one random sub-topic and one video per active user."""
 import os
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -48,6 +48,17 @@ def run_multi_user_cycle():
         fb_page = user.get("facebook_page_id")
         topic = (user.get("main_topic") or "").strip()
 
+        # --- CHECK YOUTUBE RESTRICTION ---
+        restricted_until = user.get("youtube_restricted_until")
+        if restricted_until:
+            try:
+                r_time = datetime.fromisoformat(str(restricted_until).replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) < r_time:
+                    print(f"YouTube restricted until {r_time}. Skipping YouTube upload.")
+                    yt = None # Disable YouTube for this run
+            except Exception as e:
+                print("Error parsing restriction time:", e)
+
         if not groq or not topic:
             status(user, "Skipped: Groq key and main topic are required.")
             continue
@@ -58,7 +69,6 @@ def run_multi_user_cycle():
         sub = pick_prompt(user.get("sub_topics"))
         print(f"Topic: {topic} | sub-topic: {sub or '(none)'} | mode: {user.get('content_mode')}")
         try:
-            # --- THIS IS THE CRITICAL PART THAT WAS MISSING ---
             orch = ShortsOrchestrator(
                 groq_key=groq, pixabay_keys=pixabay, pexels_key=pexels,
                 topic=topic, subtopic=sub,
@@ -67,16 +77,22 @@ def run_multi_user_cycle():
                 system_prompt=user.get("system_prompt"),
                 html_template=user.get("html_template"),
                 youtube_token=yt, facebook_page_id=fb_page, facebook_token=fb_token,
+                watermark=user.get("watermark") or "",
 
-                # Passing the Supabase URLs and Watermarks
                 youtube_profile_pic=user.get("youtube_profile_pic_url"),
                 facebook_profile_pic=user.get("facebook_profile_pic_url"),
                 youtube_watermark=user.get("youtube_watermark") or "",
                 facebook_watermark=user.get("facebook_watermark") or "",
             )
-            # --------------------------------------------------
 
             r = orch.run_cycle()
+
+            # --- IF RESTRICTED, SAVE 1 DAY COOLDOWN ---
+            if r.get("youtube_restricted"):
+                restricted_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+                sb.table("user_configs").update({"youtube_restricted_until": restricted_time}).eq("user_id", user["user_id"]).execute()
+                print("YouTube restricted. Pausing YouTube uploads for 1 day.")
+
             msg = f"OK {r['mode']}: {r['youtube_url'] or ''} {r['facebook_video_id'] or ''}".strip()
             if r["errors"]:
                 msg += " | partial: " + "; ".join(r["errors"])
