@@ -43,8 +43,8 @@ def _next_music() -> Path | None:
 
 def _font(size: int):
     for path in (
-            ROOT / "assets/fonts/NotoSansTelugu-Bold.ttf",
-            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        ROOT / "assets/fonts/NotoSansTelugu-Bold.ttf",
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
     ):
         if path.exists():
             try:
@@ -55,7 +55,7 @@ def _font(size: int):
     return ImageFont.load_default()
 
 
-def _load_profile_picture(path: str | None, size: int = 100):
+def _load_profile_picture(path: str | None, max_h: int = 100, max_w: int = 450):
     if not path:
         return None
 
@@ -66,11 +66,24 @@ def _load_profile_picture(path: str | None, size: int = 100):
 
     try:
         img = Image.open(image_path).convert("RGBA")
-        img = ImageOps.fit(img, (size, size))
 
-        mask = Image.new("L", (size, size), 0)
-        ImageDraw.Draw(mask).ellipse(
-            (0, 0, size, size),
+        # Calculate aspect ratio to fit within max_h and max_w
+        ratio = img.width / img.height
+        new_h = max_h
+        new_w = int(new_h * ratio)
+
+        if new_w > max_w:
+            new_w = max_w
+            new_h = int(new_w / ratio)
+
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        # Apply a rounded rectangle mask instead of a circle
+        mask = Image.new("L", (new_w, new_h), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.rounded_rectangle(
+            (0, 0, new_w, new_h),
+            radius=15,
             fill=255
         )
         img.putalpha(mask)
@@ -104,26 +117,28 @@ def _load_gif(path: str | None, size=(220, 90)):
 
 
 def _draw_branding(
-        im,
-        t,
-        profile,
-        title,
-        gif_frames,
-        watermark_text="",
-        show_end_branding=False
+    im,
+    t,
+    profile,
+    title,
+    gif_frames,
+    watermark_text="",
+    show_end_branding=False
 ):
     im = im.convert("RGBA")
     draw = ImageDraw.Draw(im)
 
     # Top Bar Branding
-    # Profile picture is always visible
     x, y = 40, 25
+
+    # Paste the wide banner/profile picture directly
     if profile:
         im.paste(profile, (x, y), profile)
 
+    # If text is provided, draw it next to the image
     if title:
         draw.text(
-            (x + 120, y + 25),
+            (x + profile.width + 20 if profile else x + 20, y + 25),
             title[:25],
             font=_font(42),
             fill="white",
@@ -173,18 +188,19 @@ def _draw_branding(
 
 
 def compose_video(
-        posters: list[Path],
-        out_path: Path,
-        duration: int = 15,
-        fps: int = 24,
-        countdown_first: bool = False,
-        question_seconds: int = 10,
-        profile_pic_path: str | None = None,
-        branding_title: str = "",
-        subscribe_gif_path: str | None = None,
-        watermark_text: str = "",
-        music_path: str | Path | None = None,
+    posters: list[Path],
+    out_path: Path,
+    duration: int = 15,
+    fps: int = 24,
+    countdown_first: bool = False,
+    question_seconds: int = 10,
+    profile_pic_path: str | None = None,
+    branding_title: str = "",
+    subscribe_gif_path: str | None = None,
+    watermark_text: str = "",
+    music_path: str | Path | None = None,
 ) -> Path:
+
     from moviepy.editor import AudioFileClip, VideoClip, afx
 
     if not posters:
@@ -249,7 +265,7 @@ def compose_video(
             cx, cy, r = W - 120, top_bar_h + 120, 80
 
             d.ellipse(
-                (cx - r, cy - r, cx + r, cy + r),
+                (cx-r, cy-r, cx+r, cy+r),
                 fill=(124, 58, 237, 255),
                 outline="white",
                 width=6
