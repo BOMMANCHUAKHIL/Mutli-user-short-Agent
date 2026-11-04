@@ -12,12 +12,14 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 
-from src.auth import require_login, get_client, sign_out
+from src.auth import require_login, get_client, sign_out, handle_auth_callback
 from src.crypto_utils import encrypt_key
+
 
 from src.poster_composer import TABLE_TEMPLATE, render_html
 st.set_page_config(page_title="Shorts Agent", page_icon="🎬", layout="wide")
-
+# --- HANDLE OAUTH REDIRECT ---
+handle_auth_callback()
 # ── 1. LOGIN GATE ── nothing below runs until a user is logged in
 user = require_login()
 sb = get_client()
