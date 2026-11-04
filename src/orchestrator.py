@@ -168,6 +168,7 @@ class ShortsOrchestrator:
         return []
 
     # ── main entry ─────────────────────────────────────────────────────
+    # ── main entry ─────────────────────────────────────────────────────
     def run_cycle(self) -> dict:
         mode = random.choice(["table", "story", "puzzle"]) if self.mode == "mixed" else self.mode
         content = None
@@ -175,7 +176,7 @@ class ShortsOrchestrator:
             content = self.gen.generate(mode, self.topic, self.sub)
             items = self._label_items(content)
             if items and find_mismatches(self.pool, self.language, items):
-                content = None            # label/picture mismatch -> write new content
+                content = None  # label/picture mismatch -> write new content
                 continue
             break
         if content is None:
@@ -250,9 +251,10 @@ class ShortsOrchestrator:
                     posters,
                     OUT / "videos" / f"{stamp}_youtube.mp4",
                     profile_pic_path=youtube_profile_path,
-                    branding_title="YouTube",
+                    # THIS IS THE FIX: Use watermark instead of "YouTube"
+                    branding_title=self.youtube_watermark or "",
                     subscribe_gif_path=self.subscribe_gif,
-                    watermark_text=self.youtube_watermark,
+                    watermark_text="",  # Empty to avoid duplicate at top right
                     **common_video_settings,
                 )
 
@@ -282,9 +284,10 @@ class ShortsOrchestrator:
                     posters,
                     OUT / "videos" / f"{stamp}_facebook.mp4",
                     profile_pic_path=facebook_profile_path,
-                    branding_title="Facebook",
+                    # THIS IS THE FIX: Use watermark instead of "Facebook"
+                    branding_title=self.facebook_watermark or "",
                     subscribe_gif_path=None,
-                    watermark_text=self.facebook_watermark,
+                    watermark_text="",  # Empty to avoid duplicate at top right
                     **common_video_settings,
                 )
 
