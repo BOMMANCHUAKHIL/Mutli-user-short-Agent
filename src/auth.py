@@ -149,8 +149,6 @@ def require_login() -> dict:
         st.error(f"Error setting up Google Login: {e}")
 
 
-    except Exception as e:
-        st.error(f"Error setting up Google Login: {e}")
 
     st.divider()
     st.caption("Or use your email and password")
