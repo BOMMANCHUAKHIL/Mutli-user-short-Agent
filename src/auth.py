@@ -114,7 +114,7 @@ def require_login() -> dict:
         st.write("Client ID in URL:", params.get("client_id", ["Not included in URL"])[0])
 
         st.markdown(
-            f'<a href="{auth_url.url}" target="_self">'
+            f'<a href="{auth_url.url}" target="_top">'
             f'<button style="background-color:#4285F4;color:white;padding:10px 20px;'
             f'border:none;border-radius:5px;font-size:16px;cursor:pointer;width:100%;">'
             f'Sign in with Google</button></a>',
