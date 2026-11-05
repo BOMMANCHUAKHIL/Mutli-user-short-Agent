@@ -104,18 +104,19 @@ def require_login() -> dict:
             }
         })
 
-
         parsed_url = urlparse(auth_url.url)
         params = parse_qs(parsed_url.query)
 
         st.write("OAuth provider URL:", parsed_url.netloc + parsed_url.path)
-        st.write("Client ID:", params.get("client_id", ["Not found"])[0])
+        st.write("Provider:", params.get("provider", ["Not found"])[0])
         st.write("Redirect URI:", params.get("redirect_to", ["Not found"])[0])
-        st.write("Scopes:", params.get("scopes", ["Not found"])[0])
+        st.write("PKCE Method:", params.get("code_challenge_method", ["Not found"])[0])
+        st.write("Client ID in URL:", params.get("client_id", ["Not included in URL"])[0])
+
         st.markdown(
             f'<a href="{auth_url.url}" target="_self">'
-            f'<button style="background-color:#4285F4;color:white;padding:10px 20px;border:none;'
-            f'border-radius:5px;font-size:16px;cursor:pointer;width:100%;">'
+            f'<button style="background-color:#4285F4;color:white;padding:10px 20px;'
+            f'border:none;border-radius:5px;font-size:16px;cursor:pointer;width:100%;">'
             f'Sign in with Google</button></a>',
             unsafe_allow_html=True
         )
