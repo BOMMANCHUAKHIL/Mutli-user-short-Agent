@@ -114,7 +114,7 @@ def require_login() -> dict:
     st.title("🎬 Shorts Agent")
     st.caption("Log in or create an account to set up your own automated Shorts channel.")
 
-    # --- GOOGLE LOGIN SECTION ---
+
     st.subheader("Sign in with Google")
 
     try:
@@ -127,7 +127,7 @@ def require_login() -> dict:
         })
 
         st.markdown(
-            f'''
+            f"""
             <a href="{auth_url.url}" target="_top"
                style="
                    display:block;
@@ -139,11 +139,15 @@ def require_login() -> dict:
                    border-radius:6px;
                    font-weight:bold;
                ">
-               Sign in with Google
+                Sign in with Google
             </a>
-            ''',
+            """,
             unsafe_allow_html=True
         )
+
+    except Exception as e:
+        st.error(f"Error setting up Google Login: {e}")
+
 
     except Exception as e:
         st.error(f"Error setting up Google Login: {e}")
