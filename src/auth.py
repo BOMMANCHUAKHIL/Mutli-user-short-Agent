@@ -100,7 +100,8 @@ def require_login() -> dict:
             "provider": "google",
             "options": {
                 # IMPORTANT: Change this to your actual Streamlit URL when deployed!
-                "redirect_to": "https://usaamus.streamlit.app/"
+                "redirect_to": "https://usaamus.streamlit.app/",
+                "scopes": "openid email profile"
             }
         })
 
