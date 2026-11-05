@@ -116,30 +116,32 @@ def require_login() -> dict:
 
     # --- GOOGLE LOGIN SECTION ---
     st.subheader("Sign in with Google")
+
     try:
         auth_url = get_client().auth.sign_in_with_oauth({
             "provider": "google",
             "options": {
-                # IMPORTANT: Change this to your actual Streamlit URL when deployed!
                 "redirect_to": "https://usaamus.streamlit.app/",
                 "scopes": "openid email profile"
             }
         })
 
-        parsed_url = urlparse(auth_url.url)
-        params = parse_qs(parsed_url.query)
-
-        st.write("OAuth provider URL:", parsed_url.netloc + parsed_url.path)
-        st.write("Provider:", params.get("provider", ["Not found"])[0])
-        st.write("Redirect URI:", params.get("redirect_to", ["Not found"])[0])
-        st.write("PKCE Method:", params.get("code_challenge_method", ["Not found"])[0])
-        st.write("Client ID in URL:", params.get("client_id", ["Not included in URL"])[0])
-
         st.markdown(
-            f'<a href="{auth_url.url}" target="_top">'
-            f'<button style="background-color:#4285F4;color:white;padding:10px 20px;'
-            f'border:none;border-radius:5px;font-size:16px;cursor:pointer;width:100%;">'
-            f'Sign in with Google</button></a>',
+            f'''
+            <a href="{auth_url.url}" target="_top"
+               style="
+                   display:block;
+                   background-color:#4285F4;
+                   color:white;
+                   padding:12px;
+                   text-align:center;
+                   text-decoration:none;
+                   border-radius:6px;
+                   font-weight:bold;
+               ">
+               Sign in with Google
+            </a>
+            ''',
             unsafe_allow_html=True
         )
 
