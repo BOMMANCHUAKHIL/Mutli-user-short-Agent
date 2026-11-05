@@ -12,9 +12,7 @@ def _new_client() -> Client:
         st.error("🚨 Missing Secrets! Please add SUPABASE_URL and SUPABASE_ANON_KEY to your Streamlit Secrets.")
         st.stop()
 
-    sb.auth.exchange_code_for_session({
-        "auth_code": code
-    })
+    return create_client(url, key)
 
 
 def get_client() -> Client:
