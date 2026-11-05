@@ -1,5 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
+from urllib.parse import urlparse, parse_qs
 
 
 def _new_client() -> Client:
@@ -103,6 +104,14 @@ def require_login() -> dict:
             }
         })
 
+
+        parsed_url = urlparse(auth_url.url)
+        params = parse_qs(parsed_url.query)
+
+        st.write("OAuth provider URL:", parsed_url.netloc + parsed_url.path)
+        st.write("Client ID:", params.get("client_id", ["Not found"])[0])
+        st.write("Redirect URI:", params.get("redirect_to", ["Not found"])[0])
+        st.write("Scopes:", params.get("scopes", ["Not found"])[0])
         st.markdown(
             f'<a href="{auth_url.url}" target="_self">'
             f'<button style="background-color:#4285F4;color:white;padding:10px 20px;border:none;'
