@@ -12,7 +12,9 @@ def _new_client() -> Client:
         st.error("🚨 Missing Secrets! Please add SUPABASE_URL and SUPABASE_ANON_KEY to your Streamlit Secrets.")
         st.stop()
 
-    return create_client(url, key)
+    sb.auth.exchange_code_for_session({
+        "auth_code": code
+    })
 
 
 def get_client() -> Client:
@@ -61,29 +63,50 @@ def _store(res) -> None:
 
 
 def handle_auth_callback():
-    """Handles the redirect back from Google OAuth."""
-    # Only attempt this if the session state is empty
-    if "user" in st.session_state:
+    """Handle Supabase OAuth callback using PKCE authorization code."""
+
+    if current_user():
+        return
+
+    query_params = st.query_params
+
+    code = query_params.get("code")
+    access_token = query_params.get("access_token")
+
+    # No authentication response: continue normal application flow.
+    if not code and not access_token:
         return
 
     try:
         sb = get_client()
-        query_params = st.query_params
 
-        if "access_token" in query_params:
-            session = sb.auth.set_session(
-                access_token=query_params["access_token"],
+        if code:
+            # Google OAuth returns an authorization code.
+            res = sb.auth.exchange_code_for_session({
+                "auth_code": code
+            })
+
+        else:
+            # Preserve support for the previous implicit-token callback.
+            res = sb.auth.set_session(
+                access_token=access_token,
                 refresh_token=query_params.get("refresh_token", "")
             )
-            st.session_state.user = {"id": session.user.id, "email": session.user.email}
-            get_client().postgrest.auth(session.session.access_token)
 
-            st.query_params.clear()
-            st.rerun()
+        if not res.session or not res.user:
+            raise Exception("Supabase did not return a valid user session.")
+
+        # Save user and apply JWT to database requests.
+        _store(res)
+
+        # Remove temporary OAuth parameters.
+        st.query_params.clear()
+
+        # Reload application with authenticated user.
+        st.rerun()
+
     except Exception as e:
         st.error(f"Authentication failed: {e}")
-
-
 def require_login() -> dict:
     """Show the login/sign-up screen (Google + Email/Password)."""
     user = current_user()
@@ -114,14 +137,14 @@ def require_login() -> dict:
         st.write("PKCE Method:", params.get("code_challenge_method", ["Not found"])[0])
         st.write("Client ID in URL:", params.get("client_id", ["Not included in URL"])[0])
 
-        # st.markdown(
-        #     f'<a href="{auth_url.url}" target="_top">'
-        #     f'<button style="background-color:#4285F4;color:white;padding:10px 20px;'
-        #     f'border:none;border-radius:5px;font-size:16px;cursor:pointer;width:100%;">'
-        #     f'Sign in with Google</button></a>',
-        #     unsafe_allow_html=True
-        # )
-        st.link_button("Test Google Login (New Tab)", auth_url.url)
+        st.markdown(
+            f'<a href="{auth_url.url}" target="_top">'
+            f'<button style="background-color:#4285F4;color:white;padding:10px 20px;'
+            f'border:none;border-radius:5px;font-size:16px;cursor:pointer;width:100%;">'
+            f'Sign in with Google</button></a>',
+            unsafe_allow_html=True
+        )
+
     except Exception as e:
         st.error(f"Error setting up Google Login: {e}")
 
