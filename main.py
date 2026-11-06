@@ -112,6 +112,8 @@ def run_multi_user_cycle():
                 facebook_profile_pic=user.get("facebook_profile_pic_url"),
                 youtube_watermark=user.get("youtube_watermark") or "",
                 facebook_watermark=user.get("facebook_watermark") or "",
+                enable_youtube=user.get("enable_youtube", True),
+                enable_facebook=user.get("enable_facebook", True),
             )
 
             r = orch.run_cycle()

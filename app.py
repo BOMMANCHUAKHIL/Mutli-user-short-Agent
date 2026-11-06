@@ -178,6 +178,13 @@ with tab_topic:
                                 format_func=lambda k: MODES[k])
     language = st.text_input("Label language", value=cfg.get("language", "English"),
                              help="e.g. English, Telugu, Hindi")
+    # ── NEW UPLOAD TOGGLES ──
+    st.subheader("📤 Upload Targets")
+    col_yt, col_fb = st.columns(2)
+    with col_yt:
+        enable_youtube = st.toggle("Upload to YouTube", value=cfg.get("enable_youtube", True))
+    with col_fb:
+        enable_facebook = st.toggle("Upload to Facebook", value=cfg.get("enable_facebook", True))
     st.subheader("YouTube Branding")
 
     youtube_profile_pic = st.file_uploader(
@@ -273,6 +280,10 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
             "sub_topics": sub_topics.strip(),
             "content_mode": content_mode,
             "language": language.strip() or "English",
+
+            "enable_youtube": enable_youtube,
+            "enable_facebook": enable_facebook,
+
             "timezone": user_timezone,
             "posting_times": posting_times,
 
