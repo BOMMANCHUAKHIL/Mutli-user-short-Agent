@@ -114,40 +114,34 @@ def require_login() -> dict:
     st.title("🎬 Shorts Agent")
     st.caption("Log in or create an account to set up your own automated Shorts channel.")
 
-
     st.subheader("Sign in with Google")
 
     try:
-        auth_url = get_client().auth.sign_in_with_oauth({
-            "provider": "google",
-            "options": {
-                "redirect_to": "https://usaamus.streamlit.app/",
-                "scopes": "openid email profile"
-            }
-        })
+        # Generate OAuth URL only once per Streamlit session.
+        if "google_oauth_url" not in st.session_state:
 
-        st.markdown(
-            f"""
-            <a href="{auth_url.url}" target="_top"
-               style="
-                   display:block;
-                   background-color:#4285F4;
-                   color:white;
-                   padding:12px;
-                   text-align:center;
-                   text-decoration:none;
-                   border-radius:6px;
-                   font-weight:bold;
-               ">
-                Sign in with Google
-            </a>
-            """,
-            unsafe_allow_html=True
+            oauth_response = get_client().auth.sign_in_with_oauth({
+                "provider": "google",
+                "options": {
+                    "redirect_to": "https://usaamus.streamlit.app/",
+                    "scopes": "openid email profile",
+                },
+            })
+
+            if not oauth_response.url:
+                raise RuntimeError("Supabase did not return an OAuth URL.")
+
+            st.session_state["google_oauth_url"] = oauth_response.url
+
+        # Native Streamlit button instead of a custom HTML anchor.
+        st.link_button(
+            "🔵 Sign in with Google",
+            url=st.session_state["google_oauth_url"],
+            use_container_width=True,
         )
 
     except Exception as e:
         st.error(f"Error setting up Google Login: {e}")
-
 
 
     st.divider()
