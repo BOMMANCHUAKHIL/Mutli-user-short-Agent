@@ -10,13 +10,38 @@ load_dotenv()
 
 from src.crypto_utils import decrypt_key  # noqa: E402
 from src.orchestrator import ShortsOrchestrator  # noqa: E402
+from zoneinfo import ZoneInfo  # <-- NEW IMPORT
+from dotenv import load_dotenv
+from supabase import create_client
+load_dotenv()
 
-
+from src.crypto_utils import decrypt_key
+from src.orchestrator import ShortsOrchestrator
 def pick_prompt(sub_topics: str) -> str:
     """Pick ONE random sub-topic from a comma-separated list of any length."""
     subs = [s.strip() for s in (sub_topics or "").replace("\n", ",").split(",") if s.strip()]
     return random.choice(subs) if subs else ""
 
+
+def should_run_now(user: dict) -> bool:
+    """Check if the current hour matches the user's requested posting times."""
+    try:
+        user_tz = ZoneInfo(user.get("timezone") or "UTC")
+        now_local = datetime.now(user_tz)
+
+        # Get the user's times (e.g., "06:00,12:00,19:00,21:00")
+        times_str = user.get("posting_times") or "06:00,12:00,19:00,21:00"
+        valid_hours = []
+        for t in times_str.split(","):
+            t = t.strip()
+            if ":" in t:
+                # Extract just the hour part (e.g., "06" from "06:00")
+                valid_hours.append(int(t.split(":")[0]))
+
+        return now_local.hour in valid_hours
+    except Exception as e:
+        print(f"Time check error for {user.get('email')}: {e}")
+        return False  # Skip if timezone is invalid
 
 def run_multi_user_cycle():
     url = os.environ.get("SUPABASE_URL")
@@ -40,6 +65,10 @@ def run_multi_user_cycle():
 
     for user in users:
         print(f"\n--- {user['email']} ---")
+        # --- NEW: CHECK IF IT IS TIME TO RUN ---
+        if not should_run_now(user):
+            print("Skipping: Current time does not match user's schedule.")
+            continue
         groq = decrypt_key(user.get("groq_key"))
         pixabay = decrypt_key(user.get("pixabay_keys")) or ""
         pexels = decrypt_key(user.get("pexels_key"))

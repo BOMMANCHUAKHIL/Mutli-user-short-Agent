@@ -123,6 +123,38 @@ st.title("🎬 Your Shorts Dashboard")
 tab_topic, tab_keys, tab_template, tab_publish = st.tabs(
     ["📌 Topic & Mode", "🔑 API Keys", "🎨 Template", "🚀 Publish & Status"])
 
+# ── TAB 4: publish ──
+with tab_publish:
+    is_active = st.toggle("Run my automation (included in every scheduled run)",
+                          value=bool(cfg.get("is_active", False)))
+    st.caption("Each run picks one random sub-topic and makes one 15-second video.")
+
+    # --- NEW TIMING INPUTS ---
+    st.subheader("⏰ Upload Schedule")
+
+    # Common timezones (you can add more)
+    tz_options = ["Asia/Kolkata", "UTC", "America/New_York", "Europe/London", "Asia/Dubai"]
+    saved_tz = cfg.get("timezone", "Asia/Kolkata")
+    timezone = st.selectbox(
+        "Your Timezone",
+        tz_options,
+        index=tz_options.index(saved_tz) if saved_tz in tz_options else 0
+    )
+
+    saved_times = cfg.get("posting_times", "06:00,12:00,19:00,21:00")
+    posting_times = st.text_input(
+        "Upload Times (comma separated, 24-hour format)",
+        value=saved_times,
+        placeholder="06:00, 12:00, 19:00, 21:00"
+    )
+    st.caption("The system runs hourly and will upload if the current hour matches one of these times.")
+    # -------------------------
+
+    if cfg.get("last_run_at"):
+        st.info(f"Last run: {cfg['last_run_at']}\n\n{cfg.get('last_status') or ''}")
+    else:
+        st.caption("No run yet.")
+
 # ── TAB 1: topic ──
 with tab_topic:
     main_topic = st.text_input("Main topic", value=cfg.get("main_topic", ""),
@@ -243,7 +275,10 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
             "sub_topics": sub_topics.strip(),
             "content_mode": content_mode,
             "language": language.strip() or "English",
-
+            "timezone": timezone,
+            "posting_times": posting_times,
+            "is_active": is_active,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             # YouTube branding
             "youtube_profile_pic_url": youtube_profile_pic_url,
             "youtube_watermark": youtube_watermark.strip() or None,

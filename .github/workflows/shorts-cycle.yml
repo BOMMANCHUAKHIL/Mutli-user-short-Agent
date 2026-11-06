@@ -2,7 +2,7 @@ name: Shorts cycle
 
 on:
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "0 * * * *"      # Runs at the top of every hour
   workflow_dispatch: {}
 
 concurrency:
