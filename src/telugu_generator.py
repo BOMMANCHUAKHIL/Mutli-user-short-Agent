@@ -57,19 +57,46 @@ class ContentGenerator:
 
     # ── prompts ────────────────────────────────────────────────────────
     def _system(self) -> str:
+        lang = self.language
+        is_english = lang.strip().lower() in ("english", "en")
+
+        if is_english:
+            lang_rule = (
+                "LANGUAGE: write every visible field in English.\n"
+            )
+        else:
+            lang_rule = (
+                f"LANGUAGE — STRICT RULE, HIGHEST PRIORITY:\n"
+                f"- Every user-visible string MUST be written in {lang}.\n"
+                f"- This includes: title, col_a_title, col_b_title, row tags, "
+                f"every label (a.label, b.label, option labels, image.label), "
+                f"all tips, story, question, explanation, caption, yt_title, hashtags.\n"
+                f"- Do NOT write any visible field in English unless it is a proper noun "
+                f"with no standard {lang} form.\n"
+                f"- If you write visible text in English, the output is WRONG.\n"
+            )
+
         return (
-            "You write accurate content for 15-second vertical videos and return ONLY valid JSON. "
-            f"All visible text (title, labels, tips, story, question, explanation, caption) is in {self.language}. "
-            "Every image 'query' and 'alt' is SHORT ENGLISH (2-4 words) naming ONE concrete, "
-            "photographable object or scene, exactly what the label says (e.g. 'boiled eggs', "
-            "'red sports car'), never an abstract idea. 'alt' is a different English phrasing of the same thing. "
-            "Facts must be true.\n" + self.extra
+                lang_rule
+                + "\nThe ONLY fields that are always English are 'query' and 'alt' — "
+                  "they are used for image search, never shown to viewers, so keep them "
+                  "SHORT ENGLISH (2-4 words) naming exactly what the label says "
+                  "(e.g. 'boiled eggs', 'red sports car').\n\n"
+                  "You write accurate content for 15-second vertical videos and return "
+                  "ONLY valid JSON. Facts must be true.\n"
+                + self.extra
         )
 
     def _prompt(self, mode: str, topic: str, sub: str, kind: str = "") -> str:
-        focus = f"Main topic: {topic}\nFocus for this video: {sub or 'any aspect'}\n"
-        item = '{"label": str (<=3 words), "query": str, "alt": str}'
-        meta = '"hashtags": [5 short single-word tags], "yt_title": str (<=80 chars), "caption": str (1-2 sentences)'
+        lang = self.language
+        note = f"[REMEMBER: all visible text below must be in {lang}. Only 'query'/'alt' are English.]\n"
+        focus = note + f"Main topic: {topic}\nFocus for this video: {sub or 'any aspect'}\n"
+
+        item = (f'{{"label": str in {lang} (<=3 words), '
+                f'"query": short English str, "alt": short English str}}')
+        meta = (f'"hashtags": [5 short tags in {lang}], '
+                f'"yt_title": str in {lang} (<=80 chars), '
+                f'"caption": str in {lang} (1-2 sentences)')
         if mode == "table":
             return focus + (
                 f"Make a two-column comparison poster with exactly {TABLE_ROWS_ASKED} rows. The columns are two "
@@ -143,18 +170,56 @@ class ContentGenerator:
                 "question": question, "options": opts, "answer_index": ans,
                 "explanation": _s(d.get("explanation"), 160), **_meta(d)}
 
+    def _has_target_script(self, text: str) -> bool:
+        if not text or not text.strip():
+            return True
+        if self.language.strip().lower() in ("english", "en"):
+            return True
+        # non-English target: at least one non-ASCII letter (Telugu, Hindi, Arabic, ...)
+        return bool(re.search(r"[^\x00-\x7F]", text))
+
+    def _visible_fields(self, c: dict) -> list[str]:
+        out = [c.get("title", ""), c.get("caption", ""), c.get("yt_title", "")]
+        if c["mode"] == "table":
+            out += [c.get("col_a_title", ""), c.get("col_b_title", "")]
+            for r in c.get("rows", []):
+                out += [r.get("tag", ""), r["a"].get("label", ""), r["b"].get("label", "")]
+            out += c.get("tips", [])
+        elif c["mode"] == "story":
+            out += [c.get("story", ""), c["image"].get("label", "")]
+        else:
+            out += [c.get("question", ""), c.get("explanation", "")]
+            out += [o.get("label", "") for o in c.get("options", [])]
+        out += c.get("hashtags", [])
+        return [x for x in out if x and str(x).strip()]
+
+    def _language_ok(self, c: dict) -> bool:
+        if self.language.strip().lower() in ("english", "en"):
+            return True
+        fields = self._visible_fields(c)
+        if not fields:
+            return True
+        good = sum(1 for f in fields if self._has_target_script(f))
+        return good / len(fields) >= 0.6
+
     # ── public ─────────────────────────────────────────────────────────
-    def generate(self, mode: str, topic: str, sub: str = "", attempts: int = 3) -> dict:
+    def generate(self, mode: str, topic: str, sub: str = "", attempts: int = 4) -> dict:
         kind = random.choice(["odd_one_out", "quiz"]) if mode == "puzzle" else ""
         last = None
         for _ in range(attempts):
             try:
                 d = self.pool.chat_json(self._system(), self._prompt(mode, topic, sub, kind))
                 if mode == "table":
-                    return self._validate_table(d)
-                if mode == "story":
-                    return self._validate_story(d)
-                return self._validate_puzzle(kind, d)
+                    result = self._validate_table(d)
+                elif mode == "story":
+                    result = self._validate_story(d)
+                else:
+                    result = self._validate_puzzle(kind, d)
+
+                if not self._language_ok(result):
+                    last = ValueError(f"visible text not in {self.language}")
+                    continue
+                return result
             except (ValueError, KeyError) as e:
                 last = e
-        raise RuntimeError(f"Could not generate valid {mode} content: {last}")
+        raise RuntimeError(f"Could not generate valid {mode} content in {self.language}: {last}")
