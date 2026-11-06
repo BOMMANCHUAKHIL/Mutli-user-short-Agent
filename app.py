@@ -20,13 +20,13 @@ from src.poster_composer import TABLE_TEMPLATE, render_html
 st.set_page_config(page_title="Shorts Agent", page_icon="🎬", layout="wide")
 from importlib.metadata import version, PackageNotFoundError
 
-st.write("Streamlit version:", st.__version__)
+# st.write("Streamlit version:", st.__version__)
 
-for package in ("supabase", "gotrue", "supabase-auth"):
-    try:
-        st.write(f"{package} version:", version(package))
-    except PackageNotFoundError:
-        pass
+# for package in ("supabase", "gotrue", "supabase-auth"):
+#     try:
+#         st.write(f"{package} version:", version(package))
+#     except PackageNotFoundError:
+#         pass
 # --- HANDLE OAUTH REDIRECT ---
 handle_auth_callback()
 # ── 1. LOGIN GATE ── nothing below runs until a user is logged in
