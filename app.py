@@ -137,7 +137,7 @@ with tab_publish:
     saved_tz = cfg.get("timezone", "Asia/Kolkata")
 
     # ADDED key="tz_select"
-    timezone = st.selectbox(
+    user_timezone = st.selectbox(
         "Your Timezone",
         tz_options,
         index=tz_options.index(saved_tz) if saved_tz in tz_options else 0,
@@ -273,7 +273,7 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
             "sub_topics": sub_topics.strip(),
             "content_mode": content_mode,
             "language": language.strip() or "English",
-            "timezone": timezone,
+            "timezone": user_timezone,
             "posting_times": posting_times,
 
             # YouTube branding
