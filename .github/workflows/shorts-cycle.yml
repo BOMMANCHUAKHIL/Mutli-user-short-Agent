@@ -2,7 +2,7 @@ name: Shorts cycle
 
 on:
   schedule:
-    - cron: "0 */4 * * *"      # every 4 hours (see README: YouTube upload quota)
+    - cron: "0 */4 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -12,33 +12,45 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30          # was 90; with step timeouts this is plenty
     steps:
       - uses: actions/checkout@v4
+
       - name: Restore music rotation state
         uses: actions/cache@v4
         with:
           path: output/state.json
-          key: music-state-${{ github.run_id }}-${{ github.run_attempt }}
+          key: music-state
           restore-keys: |
-            music-state-
+            music-state
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
-      - name: System packages (ffmpeg + fonts for Indic scripts and emoji)
+      - name: System packages (ffmpeg + fonts + chromium runtime libs)
+        timeout-minutes: 8
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core \
+            libnss3 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
 
       - name: Python packages
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright Chromium binary
+        timeout-minutes: 5
+        run: python -m playwright install chromium
 
       - name: Run all active users
+        timeout-minutes: 15
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
