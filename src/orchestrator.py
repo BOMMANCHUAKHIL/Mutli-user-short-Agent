@@ -108,6 +108,7 @@ class ShortsOrchestrator:
 
         self.pool = GroqPool(groq_key)
         self.gen = ContentGenerator(self.pool, self.language, system_prompt)
+        self.gen = ContentGenerator(self.pool, self.language, system_prompt)
         self.fetcher = ImageFetcher(self.pool, pixabay_keys, pexels_key, OUT / "food_cache",
                                     self.cfg.get("allow_ai_fallback", True))
         self.sources: list[str] = []
