@@ -61,53 +61,35 @@ def _store(res) -> None:
 
 
 def handle_auth_callback():
-    """Handle Supabase OAuth callback using PKCE authorization code."""
+    # Google authentication is now handled by Streamlit OIDC.
+    return
 
-    if current_user():
-        return
-
-    query_params = st.query_params
-
-    code = query_params.get("code")
-    access_token = query_params.get("access_token")
-
-    # No authentication response: continue normal application flow.
-    if not code and not access_token:
-        return
-
-    try:
-        sb = get_client()
-
-        if code:
-            # Google OAuth returns an authorization code.
-            res = sb.auth.exchange_code_for_session({
-                "auth_code": code
-            })
-
-        else:
-            # Preserve support for the previous implicit-token callback.
-            res = sb.auth.set_session(
-                access_token=access_token,
-                refresh_token=query_params.get("refresh_token", "")
-            )
-
-        if not res.session or not res.user:
-            raise Exception("Supabase did not return a valid user session.")
-
-        # Save user and apply JWT to database requests.
-        _store(res)
-
-        # Remove temporary OAuth parameters.
-        st.query_params.clear()
-
-        # Reload application with authenticated user.
-        st.rerun()
-
-    except Exception as e:
-        st.error(f"Authentication failed: {e}")
 def require_login() -> dict:
     """Show the login/sign-up screen (Google + Email/Password)."""
     user = current_user()
+    # Exchange Streamlit's Google ID token for a Supabase session.
+    if not user and st.user.is_logged_in:
+        try:
+            id_token = st.user.tokens["id"]
+            access_token = st.user.tokens["access"]
+
+            credentials = {
+                "provider": "google",
+                "token": id_token,
+                "access_token": access_token,
+            }
+
+            res = get_client().auth.sign_in_with_id_token(credentials)
+
+            if not res.session or not res.user:
+                raise Exception("Supabase did not return a valid session.")
+
+            _store(res)
+            user = current_user()
+
+        except Exception as e:
+            st.error(f"Google authentication failed: {e}")
+            st.stop()
     if user:
         return user
 
@@ -115,6 +97,12 @@ def require_login() -> dict:
     st.caption("Log in or create an account to set up your own automated Shorts channel.")
 
     st.subheader("Sign in with Google")
+
+    if st.button(
+            "🔵 Sign in with Google",
+            use_container_width=True
+    ):
+        st.login("google")
 
     try:
         # Generate OAuth URL only once per Streamlit session.
@@ -134,10 +122,24 @@ def require_login() -> dict:
             st.session_state["google_oauth_url"] = oauth_response.url
 
         # Native Streamlit button instead of a custom HTML anchor.
-        st.link_button(
-            "🔵 Sign in with Google",
-            url=st.session_state["google_oauth_url"],
-            use_container_width=True,
+        st.markdown(
+            f"""
+            <a href="{st.session_state['google_oauth_url']}"
+               target="_self"
+               style="
+                   display:block;
+                   text-align:center;
+                   padding:0.6rem;
+                   background:#4285F4;
+                   color:white;
+                   text-decoration:none;
+                   border-radius:8px;
+                   font-weight:600;
+               ">
+               🔵 Sign in with Google
+            </a>
+            """,
+            unsafe_allow_html=True,
         )
 
     except Exception as e:
