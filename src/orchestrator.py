@@ -88,7 +88,9 @@ class ShortsOrchestrator:
                  youtube_watermark: str = "",
                  facebook_watermark: str = "",
                  subscribe_gif: str | None = None,
-                 config: dict | None = None,):
+                 config: dict | None = None,
+                 enable_youtube: bool = True,
+                 enable_facebook: bool = True):
         self.cfg = config or load_config()
         self.topic, self.sub = topic, subtopic
         self.language = language or "English"
@@ -96,6 +98,11 @@ class ShortsOrchestrator:
         self.html_template = html_template
         self.watermark = watermark or ""
         self.watermark = watermark or ""
+        self.yt_token = youtube_token if enable_youtube else None  # <-- NEW
+        self.fb_page = facebook_page_id if enable_facebook else None  # <-- NEW
+        self.fb_token = facebook_token if enable_facebook else None  # <-- NEW
+        self._actual_fb_page = facebook_page_id
+        self._actual_fb_token = facebook_token
         self.yt_token = youtube_token
         self.fb_page, self.fb_token = facebook_page_id, facebook_token
         self.youtube_profile_pic = youtube_profile_pic
