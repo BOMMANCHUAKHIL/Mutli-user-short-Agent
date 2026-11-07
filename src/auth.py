@@ -1,7 +1,7 @@
 
 import streamlit as st
 from supabase import create_client, Client
-
+import time
 
 def _new_client() -> Client:
     try:
@@ -110,6 +110,18 @@ st.json({
 })
 def require_login() -> dict:
     user = current_user()
+    # Check whether Google's ID token has expired.
+    if st.user.is_logged_in:
+        claims = st.user.to_dict()
+        exp = int(claims.get("exp", 0))
+
+        if exp <= int(time.time()):
+            # Clear the old Supabase session and Google login.
+            st.session_state.pop("sb", None)
+            st.session_state.pop("user", None)
+
+            st.logout()
+            st.stop()
 
     # Exchange Google's ID token for a Supabase session.
     if not user and st.user.is_logged_in:
