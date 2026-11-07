@@ -14,7 +14,20 @@ class YouTubeRestrictedError(Exception):
 
 def upload_short(token_json: str, video_path: str, title: str, description: str,
                  tags: list[str] | None = None, privacy: str = "public") -> str:
-    info = json.loads(token_json)
+    try:
+        info = json.loads(token_json)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Invalid YouTube token format. It is not valid JSON. Please re-upload your token.json file. ({e})")
+
+    if not isinstance(info, dict):
+        raise ValueError("Invalid YouTube token. The token must be a JSON object (dictionary).")
+
+    required_fields = ["token", "refresh_token", "client_id", "client_secret"]
+    missing = [f for f in required_fields if f not in info]
+    if missing:
+        raise ValueError(
+            f"Invalid YouTube token. Missing required fields: {', '.join(missing)}. Please re-download and upload token.json.")
     creds = Credentials.from_authorized_user_info(info, SCOPES)
     yt = build("youtube", "v3", credentials=creds, cache_discovery=False)
 
