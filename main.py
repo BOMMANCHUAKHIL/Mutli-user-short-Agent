@@ -2,21 +2,17 @@
 import os
 import random
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from supabase import create_client
 
-load_dotenv()
-
-from src.crypto_utils import decrypt_key  # noqa: E402
-from src.orchestrator import ShortsOrchestrator  # noqa: E402
-from zoneinfo import ZoneInfo  # <-- NEW IMPORT
-from dotenv import load_dotenv
-from supabase import create_client
 load_dotenv()
 
 from src.crypto_utils import decrypt_key
 from src.orchestrator import ShortsOrchestrator
+
+
 def pick_prompt(sub_topics: str) -> str:
     """Pick ONE random sub-topic from a comma-separated list of any length."""
     subs = [s.strip() for s in (sub_topics or "").replace("\n", ",").split(",") if s.strip()]
@@ -25,23 +21,41 @@ def pick_prompt(sub_topics: str) -> str:
 
 def should_run_now(user: dict) -> bool:
     """Check if the current hour matches the user's requested posting times."""
+    email = user.get("email", "Unknown")
+    tz_str = (user.get("timezone") or "UTC").strip()
+
     try:
-        user_tz = ZoneInfo(user.get("timezone") or "UTC")
-        now_local = datetime.now(user_tz)
-
-        # Get the user's times (e.g., "06:00,12:00,19:00,21:00")
-        times_str = user.get("posting_times") or "06:00,12:00,19:00,21:00"
-        valid_hours = []
-        for t in times_str.split(","):
-            t = t.strip()
-            if ":" in t:
-                # Extract just the hour part (e.g., "06" from "06:00")
-                valid_hours.append(int(t.split(":")[0]))
-
-        return now_local.hour in valid_hours
+        user_tz = ZoneInfo(tz_str)
     except Exception as e:
-        print(f"Time check error for {user.get('email')}: {e}")
-        return False  # Skip if timezone is invalid
+        print(f"[{email}] Timezone error for {tz_str!r}: {e} - skipping.")
+        return False
+
+    now_local = datetime.now(user_tz)
+
+    # Read the schedule from the database
+    times_str = user.get("posting_times") or "06:00,12:00,20:00,21:00"
+    valid_hours = []
+
+    for t in times_str.split(","):
+        t = t.strip()
+        if ":" in t:
+            try:
+                valid_hours.append(int(t.split(":")[0]))
+            except ValueError:
+                pass
+
+    # Check if current hour is in the schedule
+    is_time = now_local.hour in valid_hours
+
+    # THIS PRINT STATEMENT WILL SHOW IN GITHUB ACTIONS LOGS
+    print(
+        f"[{email}] Local time: {now_local.strftime('%Y-%m-%d %H:%M')} "
+        f"(Hour: {now_local.hour}) | Schedule: {valid_hours} "
+        f"-> {'RUN ✅' if is_time else 'SKIP ⏳'}"
+    )
+
+    return is_time
+
 
 def run_multi_user_cycle():
     url = os.environ.get("SUPABASE_URL")
@@ -65,10 +79,10 @@ def run_multi_user_cycle():
 
     for user in users:
         print(f"\n--- {user['email']} ---")
-        # --- NEW: CHECK IF IT IS TIME TO RUN ---
+
         if not should_run_now(user):
-            print("Skipping: Current time does not match user's schedule.")
             continue
+
         groq = decrypt_key(user.get("groq_key"))
         pixabay = decrypt_key(user.get("pixabay_keys")) or ""
         pexels = decrypt_key(user.get("pexels_key"))
@@ -97,6 +111,7 @@ def run_multi_user_cycle():
 
         sub = pick_prompt(user.get("sub_topics"))
         print(f"Topic: {topic} | sub-topic: {sub or '(none)'} | mode: {user.get('content_mode')}")
+
         try:
             orch = ShortsOrchestrator(
                 groq_key=groq, pixabay_keys=pixabay, pexels_key=pexels,
@@ -107,7 +122,6 @@ def run_multi_user_cycle():
                 html_template=user.get("html_template"),
                 youtube_token=yt, facebook_page_id=fb_page, facebook_token=fb_token,
                 watermark=user.get("watermark") or "",
-
                 youtube_profile_pic=user.get("youtube_profile_pic_url"),
                 facebook_profile_pic=user.get("facebook_profile_pic_url"),
                 youtube_watermark=user.get("youtube_watermark") or "",
@@ -129,6 +143,7 @@ def run_multi_user_cycle():
                 msg += " | partial: " + "; ".join(r["errors"])
             print("✓", msg)
             status(user, msg)
+
         except Exception as e:
             print("✗ failed:", str(e)[:300])
             status(user, f"Failed: {str(e)[:250]}")
