@@ -100,10 +100,12 @@ def require_login() -> dict:
     if not user and st.user.is_logged_in:
         try:
             id_token = st.user.tokens["id"]
+            access_token = st.user.tokens["access"]
 
             res = get_client().auth.sign_in_with_id_token({
                 "provider": "google",
                 "token": id_token,
+                "access_token": access_token,
             })
 
             _store(res)
