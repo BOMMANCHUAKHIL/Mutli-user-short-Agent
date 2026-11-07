@@ -15,16 +15,20 @@ VISION_MODEL = os.environ.get("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b
 def parse_json(text: str) -> dict:
     text = (text or "").strip()
     try:
-        return json.loads(text)
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
     except Exception:
         pass
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group(0))
+            result = json.loads(m.group(0))
+            if isinstance(result, dict):
+                return result
         except Exception:
             pass
-    raise ValueError("model did not return valid JSON")
+    raise ValueError("model did not return a valid JSON object")
 
 
 class GroqPool:
