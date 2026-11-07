@@ -141,6 +141,8 @@ class ContentGenerator:
                 "rows": rows[:TABLE_ROWS_ASKED], "tips": tips, **_meta(d)}
 
     def _validate_story(self, d: dict) -> dict:
+        if not isinstance(d, dict):
+            raise ValueError("story: response was not an object")
         img = _item(d.get("image"))
         story = re.sub(r"\s+", " ", str(d.get("story") or "")).strip()
         if not img or len(story.split()) < 20 or not _s(d.get("title"), 60):
@@ -220,6 +222,6 @@ class ContentGenerator:
                     last = ValueError(f"visible text not in {self.language}")
                     continue
                 return result
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError, AttributeError, TypeError) as e:
                 last = e
         raise RuntimeError(f"Could not generate valid {mode} content in {self.language}: {last}")
