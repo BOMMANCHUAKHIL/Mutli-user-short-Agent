@@ -30,7 +30,6 @@ def parse_json(text: str) -> dict:
             pass
     raise ValueError("model did not return a valid JSON object")
 
-
 class GroqPool:
     def __init__(self, keys: str):
         self.keys = [k.strip() for k in (keys or "").split(",") if k.strip()]
