@@ -92,7 +92,22 @@ def handle_auth_callback():
     # Streamlit handles the Google OIDC callback automatically.
     pass
 
+import time
 
+claims = st.user.to_dict()
+
+st.write("Google OIDC diagnostics:")
+
+st.json({
+    "issuer": claims.get("iss"),
+    "audience": claims.get("aud"),
+    "authorized_party": claims.get("azp"),
+    "email_verified": claims.get("email_verified"),
+    "token_expired": claims.get("exp", 0) < time.time(),
+    "has_nonce": bool(claims.get("nonce")),
+    "has_at_hash": bool(claims.get("at_hash")),
+    "has_access_token": bool(st.user.tokens.get("access")),
+})
 def require_login() -> dict:
     user = current_user()
 
