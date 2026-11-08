@@ -103,7 +103,7 @@ class ShortsOrchestrator:
         self.fb_token = facebook_token if enable_facebook else None  # <-- NEW
         self._actual_fb_page = facebook_page_id
         self._actual_fb_token = facebook_token
-        self.yt_token = youtube_token
+
         self.fb_page, self.fb_token = facebook_page_id, facebook_token
         self.youtube_profile_pic = youtube_profile_pic
         self.facebook_profile_pic = facebook_profile_pic
@@ -213,6 +213,7 @@ class ShortsOrchestrator:
             "title": content["yt_title"],
             "video": None,
             "youtube_video": None,
+            "youtube_token_json": None,
             "facebook_video": None,
             "youtube_url": None,
             "facebook_video_id": None,
@@ -270,14 +271,18 @@ class ShortsOrchestrator:
                 result["youtube_video"] = str(youtube_video)
                 result["video"] = str(youtube_video)
 
-                result["youtube_url"] = upload_short(
+                youtube_url, updated_youtube_token = upload_short(
                     self.yt_token,
                     str(youtube_video),
                     content["yt_title"],
                     description,
                     tags,
                     self.cfg["privacy"],
+                    return_token=True,
                 )
+
+                result["youtube_url"] = youtube_url
+                result["youtube_token_json"] = updated_youtube_token
 
 
             except YouTubeRestrictedError as exc:
