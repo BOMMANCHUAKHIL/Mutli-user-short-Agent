@@ -20,41 +20,77 @@ def pick_prompt(sub_topics: str) -> str:
 
 
 def should_run_now(user: dict) -> bool:
-    """Check if the current hour matches the user's requested posting times."""
+    """Check whether a user's scheduled posting time is due."""
+
     email = user.get("email", "Unknown")
-    tz_str = (user.get("timezone") or "UTC").strip()
+    tz_str = (user.get("timezone") or "Asia/Kolkata").strip()
 
     try:
         user_tz = ZoneInfo(tz_str)
     except Exception as e:
-        print(f"[{email}] Timezone error for {tz_str!r}: {e} - skipping.")
+        print(f"[{email}] Invalid timezone {tz_str}: {e}")
         return False
 
     now_local = datetime.now(user_tz)
 
-    # Read the schedule from the database
     times_str = user.get("posting_times") or "06:00,12:00,20:00,21:00"
-    valid_hours = []
+
+    last_run = user.get("last_run_at")
+
+    last_run_local = None
+
+    if last_run:
+        try:
+            last_run_dt = datetime.fromisoformat(
+                str(last_run).replace("Z", "+00:00")
+            )
+
+            if last_run_dt.tzinfo is None:
+                last_run_dt = last_run_dt.replace(tzinfo=timezone.utc)
+
+            last_run_local = last_run_dt.astimezone(user_tz)
+
+        except Exception as e:
+            print(f"[{email}] Could not parse last_run_at: {e}")
 
     for t in times_str.split(","):
         t = t.strip()
-        if ":" in t:
-            try:
-                valid_hours.append(int(t.split(":")[0]))
-            except ValueError:
-                pass
 
-    # Check if current hour is in the schedule
-    is_time = now_local.hour in valid_hours
+        try:
+            hour, minute = map(int, t.split(":"))
 
-    # THIS PRINT STATEMENT WILL SHOW IN GITHUB ACTIONS LOGS
+            scheduled = now_local.replace(
+                hour=hour,
+                minute=minute,
+                second=0,
+                microsecond=0
+            )
+
+            # Allow execution up to 65 minutes after scheduled time.
+            if not (scheduled <= now_local < scheduled + timedelta(minutes=65)):
+                continue
+
+            # Prevent multiple uploads for the same scheduled slot.
+            if last_run_local and scheduled <= last_run_local < scheduled + timedelta(minutes=65):
+                print(f"[{email}] Already processed {t}. Skipping.")
+                continue
+
+            print(
+                f"[{email}] Local time: {now_local.strftime('%Y-%m-%d %H:%M')} "
+                f"| Scheduled: {t} | RUN"
+            )
+
+            return True
+
+        except (ValueError, TypeError):
+            print(f"[{email}] Invalid posting time: {t}")
+
     print(
         f"[{email}] Local time: {now_local.strftime('%Y-%m-%d %H:%M')} "
-        f"(Hour: {now_local.hour}) | Schedule: {valid_hours} "
-        f"-> {'RUN ✅' if is_time else 'SKIP ⏳'}"
+        f"| Schedule: {times_str} | SKIP"
     )
 
-    return is_time
+    return False
 
 
 def run_multi_user_cycle():
