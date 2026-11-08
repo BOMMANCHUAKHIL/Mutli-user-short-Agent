@@ -9,7 +9,7 @@ from supabase import create_client
 
 load_dotenv()
 
-from src.crypto_utils import decrypt_key
+from src.crypto_utils import decrypt_key, encrypt_key
 from src.orchestrator import ShortsOrchestrator
 
 
@@ -167,6 +167,19 @@ def run_multi_user_cycle():
             )
 
             r = orch.run_cycle()
+            # Save refreshed YouTube OAuth credentials for this user.
+            updated_youtube_token = r.get("youtube_token_json")
+
+            if updated_youtube_token:
+                encrypted_token = encrypt_key(updated_youtube_token)
+
+                sb.table("user_configs").update({
+                    "youtube_token": encrypted_token,
+                }).eq(
+                    "user_id", user["user_id"]
+                ).execute()
+
+                print("YouTube credentials refreshed/saved for this user.")
 
             # --- IF RESTRICTED, SAVE 1 DAY COOLDOWN ---
             if r.get("youtube_restricted"):
