@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
-
+import traceback
 from dotenv import load_dotenv
 from googleapiclient.errors import HttpError
 from supabase import create_client
@@ -154,15 +154,40 @@ def run(user_id: str) -> None:
         upd(live_status=f"Finished OK: {res['url']}")
         ok = True
 
+
     except LiveScopeError as e:
-        upd(live_status=f"Failed: {e}"[:300])
+
+        upd(live_status=f"Failed: {str(e)[:300]}")
+
+        print("✗ YouTube scope error:", repr(e))
+
+        traceback.print_exc()
+
+
     except HttpError as e:
-        upd(live_status=f"Failed: {explain_http_error(e)}"[:300])
+
+        message = explain_http_error(e)
+
+        upd(live_status=f"Failed: {message}"[:300])
+
+        print("✗ YouTube API error:", message)
+
+        traceback.print_exc()
+
+
     except Exception as e:
+
         upd(live_status=f"Failed: {str(e)[:250]}")
-        print("✗", e)
+
+        print("✗ Live streaming failed:", repr(e))
+
+        traceback.print_exc()
+
+
     finally:
-        upd(live_lock_until=None)   # on failure the next checker run may retry inside the window
+
+        upd(live_lock_until=None)
+
     if not ok:
         sys.exit(1)
 
