@@ -321,7 +321,7 @@ def build_loop(
             "-i", "list.txt",
             "-c", "copy",
             "-movflags", "+faststart",
-            str(loop_file),
+            loop_file.name,
         ],
         cwd=workdir,
     )
