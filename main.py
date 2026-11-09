@@ -11,6 +11,7 @@ load_dotenv()
 
 from src.crypto_utils import decrypt_key, encrypt_key
 from src.orchestrator import ShortsOrchestrator
+from src.video_store import save_video
 
 
 def pick_prompt(sub_topics: str) -> str:
@@ -104,12 +105,21 @@ def run_multi_user_cycle():
     users = sb.table("user_configs").select("*").eq("is_active", True).execute().data
     print(f"Found {len(users)} active user(s).")
 
-    def status(user, text):
+    def status(user, text, successful=False):
         try:
-            sb.table("user_configs").update({
+            updates = {
                 "last_status": text[:300],
-                "last_run_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("user_id", user["user_id"]).execute()
+            }
+
+            if successful:
+                updates["last_run_at"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
+
+            sb.table("user_configs").update(updates).eq(
+                "user_id", user["user_id"]
+            ).execute()
+
         except Exception as e:
             print("  (could not save status:", str(e)[:100], ")")
 
@@ -181,6 +191,16 @@ def run_multi_user_cycle():
 
                 print("YouTube credentials refreshed/saved for this user.")
 
+            # Keep the newest videos so the live-stream worker can loop them later.
+            if user.get("live_enabled"):
+                kept = (r.get("youtube_video") if r.get("youtube_url")
+                        else r.get("facebook_video") if r.get("facebook_video_id") else None)
+                if kept:
+                    try:
+                        save_video(sb, user["user_id"], kept)
+                    except Exception as e:
+                        print("  (could not store video for live:", str(e)[:150], ")")
+
             # --- IF RESTRICTED, SAVE 1 DAY COOLDOWN ---
             if r.get("youtube_restricted"):
                 restricted_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
@@ -191,7 +211,7 @@ def run_multi_user_cycle():
             if r["errors"]:
                 msg += " | partial: " + "; ".join(r["errors"])
             print("✓", msg)
-            status(user, msg)
+            status(user, msg, successful=True)
 
         except Exception as e:
             print("✗ failed:", str(e)[:300])
