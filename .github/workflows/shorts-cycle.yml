@@ -57,3 +57,10 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           MASTER_ENCRYPTION_KEY: ${{ secrets.MASTER_ENCRYPTION_KEY }}
         run: python main.py
+      - name: Diagnose scheduled trigger
+        run: |
+          echo "Event: $GITHUB_EVENT_NAME"
+          echo "UTC time: $(date -u)"
+          echo "India time: $(TZ=Asia/Kolkata date)"
+          echo "Branch: $GITHUB_REF"
+          echo "Commit: $GITHUB_SHA"
