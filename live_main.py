@@ -155,24 +155,25 @@ def run(user_id: str) -> None:
         ok = True
 
 
+
     except LiveScopeError as e:
 
-        upd(live_status=f"Failed: {str(e)[:300]}")
-
-        print("✗ YouTube scope error:", repr(e))
+        print("LIVE SCOPE ERROR:", repr(e))
 
         traceback.print_exc()
+
+        upd(live_status=f"Failed: {str(e)[:300]}")
 
 
     except HttpError as e:
 
-        message = explain_http_error(e)
+        print("YOUTUBE HTTP ERROR:", repr(e))
 
-        upd(live_status=f"Failed: {message}"[:300])
-
-        print("✗ YouTube API error:", message)
+        print("DETAILS:", explain_http_error(e))
 
         traceback.print_exc()
+
+        upd(live_status=f"Failed: {explain_http_error(e)}"[:300])
 
 
     except Exception as e:
