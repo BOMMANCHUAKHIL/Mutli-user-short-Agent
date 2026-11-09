@@ -213,9 +213,13 @@ def run_multi_user_cycle():
             print("✓", msg)
             status(user, msg, successful=True)
 
+
         except Exception as e:
-            print("✗ failed:", str(e)[:300])
-            status(user, f"Failed: {str(e)[:250]}")
+            import traceback
+            upd(live_status=f"Failed: {str(e)[:250]}")
+            print("✗ Live streaming failed:", repr(e))
+
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
