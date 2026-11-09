@@ -78,6 +78,20 @@ def saved(field: str) -> str:
     return "✅ saved" if cfg.get(field) else "❌ not set"
 
 
+def valid_times(text: str) -> bool:
+    parts = [t.strip() for t in (text or "").split(",") if t.strip()]
+    if not parts:
+        return False
+    for t in parts:
+        try:
+            h, m = map(int, t.split(":"))
+        except ValueError:
+            return False
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            return False
+    return True
+
+
 def placeholder(color: str) -> str:
     svg = f"<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><rect width='400' height='400' fill='{color}'/></svg>"
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
@@ -120,8 +134,8 @@ with st.sidebar:
     st.caption("Saved keys are encrypted and never shown again. Leave a key box empty to keep the saved one.")
 
 st.title("🎬 Your Shorts Dashboard")
-tab_topic, tab_keys, tab_template, tab_publish = st.tabs(
-    ["📌 Topic & Mode", "🔑 API Keys", "🎨 Template", "🚀 Publish & Status"])
+tab_topic, tab_keys, tab_template, tab_publish, tab_live = st.tabs(
+    ["📌 Topic & Mode", "🔑 API Keys", "🎨 Template", "🚀 Publish & Status", "📡 Live Stream"])
 
 # ── TAB 4: publish ──
 with tab_publish:
@@ -160,6 +174,46 @@ with tab_publish:
         st.info(f"Last run: {cfg['last_run_at']}\n\n{cfg.get('last_status') or ''}")
     else:
         st.caption("No run yet.")
+
+# ── TAB 5: YouTube live stream ──
+with tab_live:
+    st.subheader("📡 Scheduled YouTube Live")
+    st.caption(
+        "Loops your latest 3 generated videos as a live stream on your channel. Requirements: live "
+        "streaming enabled on the channel (YouTube Studio) and a YouTube token created with the scope "
+        "`https://www.googleapis.com/auth/youtube` (the upload-only token is not enough).")
+    live_enabled = st.toggle("Enable scheduled live stream",
+                             value=bool(cfg.get("live_enabled", False)), key="live_enabled_toggle")
+    live_times = st.text_input(
+        f"Go-live time(s) — 24-hour format, {user_timezone}, comma separated",
+        value=cfg.get("live_times") or "20:00", placeholder="20:00, 09:30", key="live_times_input")
+    st.caption("A checker runs every 15 minutes, so the stream starts 0–30 minutes after the time you set.")
+    if live_enabled and not valid_times(live_times):
+        st.error("Use HH:MM, for example 20:00 or 09:30, 21:00")
+    live_duration_min = st.slider("Stream length (minutes)", 30, 180,
+                                  int(cfg.get("live_duration_min") or 120), step=15,
+                                  key="live_duration_slider")
+    live_title = st.text_input("Live title (optional)", value=cfg.get("live_title") or "",
+                               placeholder="{topic} • Live Shorts Loop • {date}", key="live_title_input")
+    lc1, lc2 = st.columns(2)
+    privacy_opts = ["public", "unlisted", "private"]
+    layout_opts = ["landscape", "vertical"]
+    with lc1:
+        cur_p = cfg.get("live_privacy") or "public"
+        live_privacy = st.selectbox("Privacy (use unlisted to test)", privacy_opts,
+                                    index=privacy_opts.index(cur_p) if cur_p in privacy_opts else 0,
+                                    key="live_privacy_select")
+    with lc2:
+        cur_l = cfg.get("live_layout") or "landscape"
+        live_layout = st.selectbox("Layout", layout_opts,
+                                   index=layout_opts.index(cur_l) if cur_l in layout_opts else 0,
+                                   format_func=lambda k: "16:9 landscape (blurred sides)" if k == "landscape"
+                                   else "9:16 vertical",
+                                   key="live_layout_select")
+    if cfg.get("live_status"):
+        st.info(f"Live status: {cfg['live_status']}")
+    if cfg.get("live_url"):
+        st.markdown(f"Last live: {cfg['live_url']}")
 
 # ── TAB 1: topic ──
 with tab_topic:
@@ -229,7 +283,7 @@ with tab_keys:
     st.subheader("YouTube")
     youtube_token = st.text_area(
         f"YouTube OAuth token JSON  ({saved('youtube_token')})", height=100,
-        help="Create it once on your computer with scripts/get_youtube_token.py, then paste the JSON here.")
+        help="Create it once with scripts/get_youtube_token.py, then paste the JSON here. For Live streaming, request the scope https://www.googleapis.com/auth/youtube (it also covers uploads).")
     st.subheader("Facebook Reels (optional)")
     facebook_page_id = st.text_input("Facebook Page ID", value=cfg.get("facebook_page_id") or "")
     facebook_token = st.text_input(f"Facebook Page access token  ({saved('facebook_token')})", type="password")
@@ -259,6 +313,9 @@ st.divider()
 
 if st.button("💾 Save settings", type="primary", use_container_width=True):
     try:
+        if live_enabled and not valid_times(live_times):
+            raise ValueError("Live go-live time must look like 20:00 (or 09:30, 21:00).")
+
         # Keep existing images unless new ones are uploaded
         youtube_profile_pic_url = cfg.get("youtube_profile_pic_url")
         facebook_profile_pic_url = cfg.get("facebook_profile_pic_url")
@@ -299,6 +356,14 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
             "html_template": html_template,
             "facebook_page_id": facebook_page_id.strip() or None,
             "is_active": is_active,
+
+            # YouTube live
+            "live_enabled": live_enabled,
+            "live_times": live_times.strip() or "20:00",
+            "live_duration_min": int(live_duration_min),
+            "live_title": live_title.strip() or None,
+            "live_privacy": live_privacy,
+            "live_layout": live_layout,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 

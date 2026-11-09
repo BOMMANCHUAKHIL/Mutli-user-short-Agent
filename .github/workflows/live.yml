@@ -1,0 +1,51 @@
+# Put this file at .github/workflows/live.yml
+name: Live streams
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"        # checks every 15 min which users are due to go live
+  workflow_dispatch:
+    inputs:
+      user_id:
+        description: "Optional: go live NOW for this user_id (test run, ignores schedule)"
+        required: false
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  MASTER_ENCRYPTION_KEY: ${{ secrets.MASTER_ENCRYPTION_KEY }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      users: ${{ steps.plan.outputs.users }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "supabase>=2.0.0,<3.0.0" cryptography python-dotenv google-api-python-client google-auth google-auth-httplib2
+      - id: plan
+        run: python live_main.py plan
+        env:
+          FORCE_USER: ${{ github.event.inputs.user_id }}
+
+  stream:
+    needs: plan
+    if: needs.plan.outputs.users != '' && needs.plan.outputs.users != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 230           # longest allowed stream (180) + setup
+    strategy:
+      fail-fast: false             # one user's failure must not stop the others
+      matrix:
+        user_id: ${{ fromJson(needs.plan.outputs.users) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install "supabase>=2.0.0,<3.0.0" cryptography python-dotenv google-api-python-client google-auth google-auth-httplib2
+      - run: python live_main.py run "${{ matrix.user_id }}"
