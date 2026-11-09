@@ -2,12 +2,13 @@ name: Shorts cycle
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch: {}
 
 concurrency:
   group: shorts-cycle
   cancel-in-progress: false
+  queue: max
 
 jobs:
   run:
