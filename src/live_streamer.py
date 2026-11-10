@@ -340,19 +340,57 @@ def build_loop(
 # ---------------------------------------------------------
 # YouTube Live API
 # ---------------------------------------------------------
-
 def get_or_create_stream(yt) -> dict:
+    """Find an existing RTMP stream, retrying temporary YouTube API errors."""
 
-    response = yt.liveStreams().list(
-        part="id,snippet,cdn",
-        mine=True,
-        maxResults=50,
-    ).execute()
+    response = None
+    max_attempts = 5
+
+    for attempt in range(max_attempts):
+        try:
+            print(
+                f"Checking existing YouTube Live streams "
+                f"(attempt {attempt + 1}/{max_attempts})..."
+            )
+
+            response = yt.liveStreams().list(
+                part="id,snippet,cdn",
+                mine=True,
+                maxResults=50,
+            ).execute()
+
+            break
+
+        except HttpError as exc:
+            status_code = getattr(exc.resp, "status", None)
+
+            # Retry only temporary server/rate-limit errors.
+            if status_code not in (429, 500, 502, 503, 504):
+                raise
+
+            if attempt == max_attempts - 1:
+                print("YouTube stream lookup failed after all retries.")
+                raise
+
+            delay = min(2 ** (attempt + 1), 30)
+
+            print(
+                f"YouTube API temporary error HTTP {status_code}. "
+                f"Retrying in {delay} seconds..."
+            )
+
+            time.sleep(delay)
+
+    if response is None:
+        raise RuntimeError("Unable to retrieve YouTube Live streams.")
 
     for stream in response.get("items", []):
+        snippet = stream.get("snippet", {})
+        cdn = stream.get("cdn", {})
+
         if (
-            stream["snippet"]["title"] == STREAM_TITLE
-            and stream["cdn"].get("ingestionType") == "rtmp"
+            snippet.get("title") == STREAM_TITLE
+            and cdn.get("ingestionType") == "rtmp"
         ):
             print("Reusing existing YouTube RTMP stream.")
             return stream
