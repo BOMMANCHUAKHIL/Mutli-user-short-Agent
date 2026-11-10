@@ -48,7 +48,10 @@ def upload_short(
         try:
             creds.refresh(Request())
         except RefreshError as exc:
-            print("YouTube OAuth refresh error:", str(exc))
+            print(
+                f"[YouTube OAuth] Refresh failed: "
+                f"{type(exc).__name__}: {str(exc)[:500]}"
+            )
 
             raise RuntimeError(
                 f"YouTube OAuth refresh failed: {str(exc)[:500]}"
