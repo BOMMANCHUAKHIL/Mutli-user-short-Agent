@@ -13,7 +13,7 @@ from .poster_composer import render_html
 from .reviewer_agent import find_mismatches
 from .telugu_generator import ContentGenerator, TABLE_ROWS_NEEDED
 from .video_composer import compose_video, _next_music
-from .youtube_uploader import upload_short
+
 from .youtube_uploader import upload_short, YouTubeRestrictedError
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output"

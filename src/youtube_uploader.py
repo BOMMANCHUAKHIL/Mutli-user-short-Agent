@@ -41,10 +41,16 @@ def upload_short(
             f"YouTube token is missing required fields: {', '.join(missing)}"
         )
 
-    # Use the scopes already associated with the saved authorization.
-    # Do not request a different scope during token refresh.
-    creds = Credentials.from_authorized_user_info(info)
-    print("[YouTube OAuth] Saved token scopes:", info.get("scopes"))
+    # Read the scopes for debugging.
+    saved_scopes = info.get("scopes")
+    print("[YouTube OAuth] Saved token scopes:", repr(saved_scopes))
+
+    # Remove saved scopes from the input.
+    # This prevents google-auth from sending them in the refresh request.
+    credential_info = dict(info)
+    credential_info.pop("scopes", None)
+
+    creds = Credentials.from_authorized_user_info(credential_info)
 
     # Explicitly refresh an expired or invalid access token.
     if not creds.valid:
