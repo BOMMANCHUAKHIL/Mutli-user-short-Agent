@@ -214,10 +214,19 @@ def run_multi_user_cycle():
             status(user, msg, successful=True)
 
 
+
+
         except Exception as e:
+
             import traceback
-            upd(live_status=f"Failed: {str(e)[:250]}")
-            print("✗ Live streaming failed:", repr(e))
+
+            error_message = f"Failed: {str(e)[:250]}"
+
+            # Save the failure status for this user in Supabase.
+
+            status(user, error_message)
+
+            print(f"✗ Failed for {user['email']}: {repr(e)}")
 
             traceback.print_exc()
 

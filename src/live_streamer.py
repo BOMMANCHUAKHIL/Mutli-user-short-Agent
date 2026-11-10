@@ -153,7 +153,7 @@ def load_credentials(token_json: str) -> Credentials:
     if isinstance(granted, str):
         granted = granted.split()
 
-    if granted and not (LIVE_SCOPES & set(granted)):
+    if not granted or not (LIVE_SCOPES & set(granted)):
         raise LiveScopeError(
             "The stored YouTube token does not have the required "
             "YouTube Live scope. Generate a separate Live token."

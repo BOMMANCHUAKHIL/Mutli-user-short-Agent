@@ -48,9 +48,10 @@ def upload_short(
         try:
             creds.refresh(Request())
         except RefreshError as exc:
+            print("YouTube OAuth refresh error:", str(exc))
+
             raise RuntimeError(
-                "YouTube OAuth refresh failed. The user's Google authorization "
-                "may have been revoked or the OAuth client configuration may be invalid."
+                f"YouTube OAuth refresh failed: {str(exc)[:500]}"
             ) from exc
 
     # Capture the latest credentials after refresh.
