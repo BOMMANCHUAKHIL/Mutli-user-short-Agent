@@ -155,8 +155,8 @@ def load_credentials(token_json: str) -> Credentials:
 
     if not granted or not (LIVE_SCOPES & set(granted)):
         raise LiveScopeError(
-            "The stored YouTube token does not have the required "
-            "YouTube Live scope. Generate a separate Live token."
+            "Missing YouTube Live authorization. "
+            "Please reconnect the Google account with Live permissions."
         )
 
     creds = Credentials.from_authorized_user_info(info)

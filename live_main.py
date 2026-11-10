@@ -119,7 +119,7 @@ def run(user_id: str) -> None:
 
     ok = False
     try:
-        token = decrypt_key(user.get("youtube_token"))
+        token = decrypt_key(user.get("youtube_live_token"))
         if not token:
             raise RuntimeError("No YouTube token saved.")
 
@@ -150,7 +150,7 @@ def run(user_id: str) -> None:
             workdir=workdir, on_live=went_live,
         )
         if res.get("token_json"):
-            upd(youtube_token=encrypt_key(res["token_json"]))
+            upd(youtube_live_token=encrypt_key(res["token_json"]))
         upd(live_status=f"Finished OK: {res['url']}")
         ok = True
 
@@ -176,13 +176,17 @@ def run(user_id: str) -> None:
         upd(live_status=f"Failed: {explain_http_error(e)}"[:300])
 
 
+
+
     except Exception as e:
 
-        upd(live_status=f"Failed: {str(e)[:250]}")
-
-        print("✗ Live streaming failed:", repr(e))
-
         traceback.print_exc()
+
+        error_message = f"Failed: {str(e)[:250]}"
+
+        upd(live_status=error_message)
+
+        print(f"✗ Live streaming failed: {repr(e)}")
 
 
     finally:
