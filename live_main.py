@@ -119,7 +119,7 @@ def run(user_id: str) -> None:
 
     ok = False
     try:
-        token = decrypt_key(user.get("youtube_live_token"))
+        token = decrypt_key(user.get("youtube_token"))
         if not token:
             raise RuntimeError("No YouTube token saved.")
 
@@ -150,7 +150,8 @@ def run(user_id: str) -> None:
             workdir=workdir, on_live=went_live,
         )
         if res.get("token_json"):
-            upd(youtube_live_token=encrypt_key(res["token_json"]))
+            upd(youtube_token=encrypt_key(res["token_json"]))
+            print("YouTube OAuth token refreshed and saved.")
         upd(live_status=f"Finished OK: {res['url']}")
         ok = True
 
