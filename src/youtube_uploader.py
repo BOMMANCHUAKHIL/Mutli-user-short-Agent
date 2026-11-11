@@ -51,16 +51,19 @@ def upload_short(
     credential_info = dict(info)
 
     creds = Credentials.from_authorized_user_info(
-        credential_info,
-        scopes=SCOPES,
+        credential_info
     )
 
     print("[YouTube OAuth] Credential scopes:", creds.scopes)
+    print("[YouTube OAuth] Has refresh token:", bool(creds.refresh_token))
 
     # Explicitly refresh an expired or invalid access token.
     if not creds.valid:
         try:
             creds.refresh(Request())
+
+            print("[YouTube OAuth] Token refreshed successfully.")
+
         except RefreshError as exc:
             print(
                 f"[YouTube OAuth] Refresh failed: "
@@ -71,7 +74,6 @@ def upload_short(
                 f"YouTube OAuth refresh failed: {str(exc)[:500]}"
             ) from exc
 
-    # Capture the latest credentials after refresh.
     updated_token_json = creds.to_json()
 
     yt = build(
