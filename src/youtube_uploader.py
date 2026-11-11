@@ -52,12 +52,11 @@ def upload_short(
     credential_info = dict(info)
     credential_info.pop("scopes", None)
 
-    # Use the existing refresh token without requesting new scopes.
     creds = Credentials.from_authorized_user_info(
-        credential_info,
-        scopes=None,
+        credential_info
     )
 
+    print("[YouTube OAuth] Saved token scopes:", repr(saved_scopes))
     print("[YouTube OAuth] Credential scopes:", creds.scopes)
     print("[YouTube OAuth] Has refresh token:", bool(creds.refresh_token))
 
