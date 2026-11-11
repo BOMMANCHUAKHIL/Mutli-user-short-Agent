@@ -9,7 +9,9 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload"
+]
 
 
 class YouTubeRestrictedError(Exception):
@@ -41,27 +43,27 @@ def upload_short(
             f"YouTube token is missing required fields: {', '.join(missing)}"
         )
 
-    # Read the scopes for debugging.
+
+    # Read saved scopes for debugging.
     saved_scopes = info.get("scopes")
     print("[YouTube OAuth] Saved token scopes:", repr(saved_scopes))
 
-    # Remove saved scopes from the input.
-    # This prevents google-auth from sending them in the refresh request.
-    # Preserve and explicitly request the YouTube upload scope.
+    # Do not send saved scopes during refresh.
     credential_info = dict(info)
+    credential_info.pop("scopes", None)
 
+    # Use the existing refresh token without requesting new scopes.
     creds = Credentials.from_authorized_user_info(
-        credential_info
+        credential_info,
+        scopes=None,
     )
 
     print("[YouTube OAuth] Credential scopes:", creds.scopes)
     print("[YouTube OAuth] Has refresh token:", bool(creds.refresh_token))
 
-    # Explicitly refresh an expired or invalid access token.
     if not creds.valid:
         try:
             creds.refresh(Request())
-
             print("[YouTube OAuth] Token refreshed successfully.")
 
         except RefreshError as exc:
@@ -69,12 +71,12 @@ def upload_short(
                 f"[YouTube OAuth] Refresh failed: "
                 f"{type(exc).__name__}: {str(exc)[:500]}"
             )
-
             raise RuntimeError(
                 f"YouTube OAuth refresh failed: {str(exc)[:500]}"
             ) from exc
 
     updated_token_json = creds.to_json()
+
 
     yt = build(
         "youtube",
