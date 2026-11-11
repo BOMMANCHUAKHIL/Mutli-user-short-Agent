@@ -47,10 +47,15 @@ def upload_short(
 
     # Remove saved scopes from the input.
     # This prevents google-auth from sending them in the refresh request.
+    # Preserve and explicitly request the YouTube upload scope.
     credential_info = dict(info)
-    credential_info.pop("scopes", None)
 
-    creds = Credentials.from_authorized_user_info(credential_info)
+    creds = Credentials.from_authorized_user_info(
+        credential_info,
+        scopes=SCOPES,
+    )
+
+    print("[YouTube OAuth] Credential scopes:", creds.scopes)
 
     # Explicitly refresh an expired or invalid access token.
     if not creds.valid:
@@ -120,19 +125,61 @@ def upload_short(
 
         return youtube_url
 
+
+
     except HttpError as exc:
+
         content = exc.content.decode("utf-8", errors="ignore")
 
-        if (
-            exc.resp.status in (400, 401, 403)
-            and (
-                "quotaExceeded" in content
-                or "uploadLimitExceeded" in content
-                or exc.resp.status == 403
-            )
-        ):
+        try:
+
+            error_data = json.loads(content)
+
+        except (json.JSONDecodeError, TypeError):
+
+            error_data = {}
+
+        error_info = error_data.get("error", {})
+
+        errors = error_info.get("errors", [])
+
+        reasons = [
+
+            item.get("reason", "unknown")
+
+            for item in errors
+
+        ]
+
+        message = error_info.get("message", str(exc))
+
+        print("[YouTube API] HTTP status:", exc.resp.status)
+
+        print("[YouTube API] Error reasons:", reasons)
+
+        print("[YouTube API] Error message:", message)
+
+        print("[YouTube API] Full response:", content[:2000])
+
+        # Only classify known quota/upload-limit errors as limits.
+
+        limit_reasons = {
+
+            "quotaExceeded",
+
+            "dailyLimitExceeded",
+
+            "uploadLimitExceeded",
+
+        }
+
+        if any(reason in limit_reasons for reason in reasons):
             raise YouTubeRestrictedError(
-                "YouTube API limit reached or account restricted."
+
+                f"YouTube quota/upload limit: {reasons} - {message}"
+
             ) from exc
+
+        # Preserve other errors instead of misclassifying every 403.
 
         raise
