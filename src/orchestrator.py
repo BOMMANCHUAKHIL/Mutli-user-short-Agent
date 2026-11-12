@@ -128,25 +128,114 @@ class ShortsOrchestrator:
 
     def _build_table(self, c: dict):
         rows = c["rows"]
+
+        # Check factual/image-label mismatches first.
         items = [x for r in rows for x in (r["a"], r["b"])]
         bad = find_mismatches(self.pool, self.language, items)
-        ok = [r for i, r in enumerate(rows) if 2 * i not in bad and 2 * i + 1 not in bad]
-        pending = ok if len(ok) >= TABLE_ROWS_NEEDED else rows
+
+        valid_rows = [
+            (i, r)
+            for i, r in enumerate(rows)
+            if 2 * i not in bad and 2 * i + 1 not in bad
+        ]
+
         chosen = []
-        while len(chosen) < TABLE_ROWS_NEEDED and pending:
-            batch = pending[:TABLE_ROWS_NEEDED - len(chosen)]
-            pending = pending[len(batch):]
-            pairs = [(x["query"], x["alt"]) for r in batch for x in (r["a"], r["b"])]
-            res = self._fetch(pairs)
-            for k, r in enumerate(batch):
-                if res[2 * k] and res[2 * k + 1]:
-                    chosen.append({"tag": r["tag"],
-                                   "a_label": r["a"]["label"], "a_img": to_data_uri(res[2 * k]["bytes"]),
-                                   "b_label": r["b"]["label"], "b_img": to_data_uri(res[2 * k + 1]["bytes"])})
+
+        def fetch_verified(item):
+            """
+            Try the original image query and alternative queries.
+            Only accept images returned successfully by ImageFetcher.
+            """
+            query = item.get("query", "")
+            alt = item.get("alt", "")
+            label = item.get("label", "")
+
+            candidates = [
+                (query, alt),
+                (alt, query),
+                (label, alt),
+                (label, query),
+            ]
+
+            seen = set()
+
+            for search_query, alternative in candidates:
+                if not search_query:
+                    continue
+
+                pair = (search_query, alternative)
+
+                if pair in seen:
+                    continue
+
+                seen.add(pair)
+
+                try:
+                    result = self._fetch([pair])[0]
+                    if result:
+                        return result
+                except Exception as exc:
+                    print(
+                        f"Image search failed for {search_query}: {exc}"
+                    )
+
+            return None
+
+        print(
+            f"Table image verification: "
+            f"{len(valid_rows)} valid rows out of {len(rows)}"
+        )
+
+        for index, row in valid_rows:
+
+            if len(chosen) >= TABLE_ROWS_NEEDED:
+                break
+
+            print(
+                f"Processing table row {index + 1}: {row['tag']}"
+            )
+
+            # Fetch each image independently.
+            image_a = fetch_verified(row["a"])
+            image_b = fetch_verified(row["b"])
+
+            if not image_a or not image_b:
+                print(
+                    f"Skipping row {index + 1}: "
+                    "could not verify both images"
+                )
+                continue
+
+            chosen.append({
+                "tag": row["tag"],
+                "a_label": row["a"]["label"],
+                "a_img": to_data_uri(image_a["bytes"]),
+                "b_label": row["b"]["label"],
+                "b_img": to_data_uri(image_b["bytes"]),
+            })
+
+            print(
+                f"Verified row {len(chosen)}/{TABLE_ROWS_NEEDED}"
+            )
+
         if len(chosen) < TABLE_ROWS_NEEDED:
-            raise RuntimeError(f"only {len(chosen)} rows have verified images")
-        ctx = {"title": c["title"], "col_a_title": c["col_a_title"], "col_b_title": c["col_b_title"],
-               "rows": chosen, "tips": c["tips"], "watermark": self.watermark}
+            raise RuntimeError(
+                f"Only {len(chosen)}/{TABLE_ROWS_NEEDED} "
+                f"table rows have verified images. "
+                f"Original rows: {len(rows)}, "
+                f"valid rows: {len(valid_rows)}. "
+                "More valid content or image sources are required."
+            )
+
+        ctx = {
+            "title": c["title"],
+            "col_a_title": c["col_a_title"],
+            "col_b_title": c["col_b_title"],
+            "rows": chosen,
+            "tips": c["tips"],
+            "watermark": self.watermark,
+        }
+
         return [render_html("table", ctx, self.html_template)]
 
     def _build_story(self, c: dict):
