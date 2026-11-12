@@ -4,7 +4,7 @@ name: Shorts cycle
 on:
   schedule:
     - cron: "7,22,37,52 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 concurrency:
   group: shorts-cycle
@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
+
       # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,9 +27,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: output/state.json
-          key: music-state
+          key: music-state-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            music-state
+            music-state-${{ github.ref_name }}-
+            music-state-
 
       # 3. Setup Python
       - name: Setup Python
@@ -36,12 +38,14 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: requirements.txt
 
-      # 4. Install system packages only when needed
-      - name: System packages (FFmpeg + fonts + Chromium libraries)
+      # 4. Install system packages
+      - name: Install FFmpeg, fonts and Chromium dependencies
         timeout-minutes: 10
         env:
           DEBIAN_FRONTEND: noninteractive
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -50,10 +54,11 @@ jobs:
             fonts-noto-core
             fonts-noto-color-emoji
             fonts-dejavu-core
+
             libnss3
-            libatk1.0-0
-            libatk-bridge2.0-0
-            libcups2
+            libatk1.0-0t64
+            libatk-bridge2.0-0t64
+            libcups2t64
             libdrm2
             libxkbcommon0
             libxcomposite1
@@ -61,71 +66,79 @@ jobs:
             libxfixes3
             libxrandr2
             libgbm1
-            libasound2
+            libasound2t64
+            libglib2.0-0
+            libnspr4
+            libpango-1.0-0
+            libcairo2
+            libx11-6
+            libx11-xcb1
+            libxcb1
+            libxext6
+            libxshmfence1
+            libxrender1
+            libfontconfig1
+            libfreetype6
           )
 
-          MISSING=()
+          echo "Updating Ubuntu package lists..."
 
-          for package in "${PACKAGES[@]}"; do
-            if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
-              MISSING+=("$package")
+          UPDATED=false
+
+          for attempt in 1 2 3; do
+            echo "APT update attempt $attempt"
+
+            if sudo apt-get update \
+              -o APT::Update::Error-Mode=any \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30; then
+              UPDATED=true
+              break
             fi
+
+            sleep 10
           done
 
-          if [ ${#MISSING[@]} -gt 0 ]; then
-            echo "Missing packages: ${MISSING[*]}"
+          if [ "$UPDATED" != "true" ]; then
+            echo "::error::APT update failed."
+            exit 1
+          fi
 
-            UPDATED=false
+          echo "Installing required system packages..."
 
-            for attempt in 1 2 3; do
-              echo "APT update attempt $attempt"
+          INSTALLED=false
 
-              if sudo apt-get update \
-                -o APT::Update::Error-Mode=any \
-                -o Acquire::Retries=3 \
-                -o Acquire::http::Timeout=30 \
-                -o Acquire::https::Timeout=30; then
-                UPDATED=true
-                break
-              fi
+          for attempt in 1 2 3; do
+            echo "Installation attempt $attempt"
 
-              sleep 10
-            done
-
-            if [ "$UPDATED" != "true" ]; then
-              echo "APT update failed after retries."
-              exit 1
+            if sudo apt-get install -y \
+              --no-install-recommends \
+              "${PACKAGES[@]}"; then
+              INSTALLED=true
+              break
             fi
 
-            INSTALLED=false
+            sleep 10
+          done
 
-            for attempt in 1 2 3; do
-              echo "Package installation attempt $attempt"
-
-              if sudo apt-get install -y --no-install-recommends "${MISSING[@]}"; then
-                INSTALLED=true
-                break
-              fi
-
-              sleep 10
-            done
-
-            if [ "$INSTALLED" != "true" ]; then
-              echo "Package installation failed."
-              exit 1
-            fi
-          else
-            echo "All required system packages are already installed."
+          if [ "$INSTALLED" != "true" ]; then
+            echo "::error::System package installation failed."
+            exit 1
           fi
 
           echo "Checking FFmpeg..."
           ffmpeg -version | head -n 2
 
-          echo "System packages ready."
+          echo "Checking fonts..."
+          fc-list | head -n 5
+
+          echo "System packages installed successfully."
 
       # 5. Install Python dependencies
-      - name: Python packages
+      - name: Install Python packages
         timeout-minutes: 10
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -138,28 +151,57 @@ jobs:
             --timeout 30 \
             -r requirements.txt
 
+          echo "Python dependencies installed."
+
       # 6. Install Playwright Chromium
-      - name: Install Playwright Chromium binary
+      - name: Install Playwright Chromium
         timeout-minutes: 5
+        shell: bash
         run: |
           set -euo pipefail
+
           python -m playwright install chromium
+
+          echo "Chromium installed successfully."
 
       # 7. Verify environment
       - name: Verify environment
+        shell: bash
         run: |
           set -euo pipefail
 
+          echo "================================"
+          echo "ENVIRONMENT VERIFICATION"
+          echo "================================"
+
+          echo ""
           echo "Python:"
           python --version
 
+          echo ""
+          echo "Pip:"
+          python -m pip --version
+
+          echo ""
           echo "FFmpeg:"
           ffmpeg -version | head -n 2
 
+          echo ""
+          echo "FFprobe:"
+          ffprobe -version | head -n 2
+
+          echo ""
           echo "Playwright:"
           python -m playwright --version
 
-          echo "Environment verification successful."
+          echo ""
+          echo "Chromium:"
+          python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True); print(b.version); b.close(); p.stop()"
+
+          echo ""
+          echo "================================"
+          echo "ENVIRONMENT READY"
+          echo "================================"
 
       # 8. Run Shorts automation
       - name: Run all active users
@@ -168,15 +210,24 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           MASTER_ENCRYPTION_KEY: ${{ secrets.MASTER_ENCRYPTION_KEY }}
+          PYTHONUNBUFFERED: "1"
+        shell: bash
         run: |
+          set -euo pipefail
+
+          echo "Starting Shorts automation..."
+
           python main.py
+
+          echo "Shorts automation completed successfully."
 
       # 9. Diagnostics
       - name: Diagnose scheduled trigger
         if: always()
+        shell: bash
         run: |
           echo "================================"
-          echo "Shorts cycle diagnostics"
+          echo "SHORTS CYCLE DIAGNOSTICS"
           echo "================================"
 
           echo "Event: $GITHUB_EVENT_NAME"
@@ -186,4 +237,21 @@ jobs:
           echo "Commit: $GITHUB_SHA"
           echo "Runner: $RUNNER_OS"
 
+          echo ""
+          echo "Python:"
+          python --version || true
+
+          echo ""
+          echo "FFmpeg:"
+          ffmpeg -version | head -n 2 || true
+
+          echo ""
+          echo "State file:"
+          if [ -f output/state.json ]; then
+            ls -lh output/state.json
+          else
+            echo "State file not found."
+          fi
+
+          echo ""
           echo "================================"
