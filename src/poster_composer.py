@@ -94,6 +94,39 @@ h1{font-size:56px;text-align:center;line-height:1.2;margin-bottom:20px}
 
 BUILTIN = {"table": TABLE_TEMPLATE, "story": STORY_TEMPLATE, "puzzle": PUZZLE_TEMPLATE}
 
+# ── after PUZZLE_TEMPLATE ──────────────────────────────────────────────
+CUSTOM_STARTER = """<!doctype html><html><head><meta charset="utf-8"><style>""" + BASE_CSS + """
+.wrap{padding:60px}
+h1{font-size:64px;line-height:1.2;text-align:center;margin-bottom:30px}
+.images{display:flex;flex-wrap:wrap;gap:20px;justify-content:center;margin:30px 0}
+.images figure{width:460px;margin:0}
+.images img{width:100%;height:360px;object-fit:cover;border-radius:20px}
+.images figcaption{font-size:30px;text-align:center;margin-top:10px;opacity:.85}
+p{font-size:38px;line-height:1.5;text-align:center;margin-top:24px}
+.tags{margin-top:30px;text-align:center;font-size:28px;opacity:.7}
+</style></head><body><div class="wrap">
+<h1>{{ title|clean_label }}</h1>
+{% if images %}<div class="images">
+{% for img in images %}<figure><img src="{{ img }}"><figcaption>{{ labels[loop.index0]|clean_label }}</figcaption></figure>{% endfor %}
+</div>{% endif %}
+<p>{{ text }}</p>
+<div class="tags">{{ hashtags|join(' ') }}</div>
+</div>{% if watermark %}<div class="wm">{{ watermark }}</div>{% endif %}</body></html>"""
+
+BUILTIN = {"table": TABLE_TEMPLATE, "story": STORY_TEMPLATE, "puzzle": PUZZLE_TEMPLATE}
+
+
+def render_html(mode: str, context: dict, custom_template: str | None = None) -> str:
+    """Render a poster. Table and Custom modes can use a user-supplied template."""
+    if mode == "custom":
+        if not custom_template or not custom_template.strip():
+            raise ValueError("Custom mode requires an HTML template.")
+        src = custom_template
+    elif mode == "table" and custom_template and custom_template.strip():
+        src = custom_template
+    else:
+        src = BUILTIN[mode]
+    return _env.from_string(src).render(**context)
 
 def render_html(mode: str, context: dict, custom_template: str | None = None) -> str:
     """Render a poster. A custom template (from the dashboard) is used for table mode only."""

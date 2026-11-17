@@ -90,12 +90,22 @@ class ShortsOrchestrator:
                  subscribe_gif: str | None = None,
                  config: dict | None = None,
                  enable_youtube: bool = True,
-                 enable_facebook: bool = True):
+                 enable_facebook: bool = True,
+                 custom_html_template: str | None = None,
+                 custom_num_images: int | None = None):
         self.cfg = config or load_config()
         self.topic, self.sub = topic, subtopic
         self.language = language or "English"
         self.mode = mode if mode in ("table", "story", "puzzle", "mixed") else "table"
         self.html_template = html_template
+        self.custom_html_template = (
+            custom_html_template if custom_html_template is not None
+            else self.cfg.get("custom_html_template")
+        )
+        self.custom_num_images = (
+            int(custom_num_images) if custom_num_images is not None
+            else int(self.cfg.get("custom_num_images") or 0)
+        )
         self.watermark = watermark or ""
         self.watermark = watermark or ""
         self.yt_token = youtube_token if enable_youtube else None  # <-- NEW
@@ -263,25 +273,64 @@ class ShortsOrchestrator:
             return [c["image"]]
         if c["mode"] == "puzzle":
             return c["options"]
+        if c["mode"] == "custom":
+            return c.get("images", [])
         return []
 
-    # ── main entry ─────────────────────────────────────────────────────
+    # ── new builder ────────────────────────────────────────────────────────
+    def _build_custom(self, c: dict):
+        if not self.custom_html_template or not self.custom_html_template.strip():
+            raise RuntimeError("Custom mode requires an HTML template.")
+
+        images = c.get("images") or []
+        if images:
+            res = self._fetch([(img["query"], img["alt"]) for img in images])
+            if not all(res):
+                missing = [images[i]["label"] for i, r in enumerate(res) if not r]
+                raise RuntimeError(
+                    "could not fetch images for: " + ", ".join(missing)
+                )
+            image_uris = [to_data_uri(r["bytes"]) for r in res]
+            labels = [img["label"] for img in images]
+        else:
+            image_uris, labels = [], []
+
+        ctx = {
+            "title": c["title"],
+            "text": c["text"],
+            "caption": c["caption"],
+            "hashtags": c["hashtags"],
+            "watermark": self.watermark,
+            "images": image_uris,
+            "labels": labels,
+        }
+        return [render_html("custom", ctx, self.custom_html_template)]
+
     # ── main entry ─────────────────────────────────────────────────────
     def run_cycle(self) -> dict:
-        mode = random.choice(["table", "story", "puzzle"]) if self.mode == "mixed" else self.mode
+        mode = (random.choice(["table", "story", "puzzle"])
+                if self.mode == "mixed" else self.mode)
+
         content = None
         for attempt in range(3):
-            content = self.gen.generate(mode, self.topic, self.sub)
+            content = self.gen.generate(
+                mode, self.topic, self.sub,
+                num_images=self.custom_num_images,
+            )
             items = self._label_items(content)
             if items and find_mismatches(self.pool, self.language, items):
-                content = None  # label/picture mismatch -> write new content
+                content = None
                 continue
             break
         if content is None:
             raise RuntimeError("content kept failing the label check")
 
-        builder = {"table": self._build_table, "story": self._build_story,
-                   "puzzle": self._build_puzzle}[mode]
+        builder = {
+            "table": self._build_table,
+            "story": self._build_story,
+            "puzzle": self._build_puzzle,
+            "custom": self._build_custom,
+        }[mode]
         htmls = builder(content)
 
         stamp = time.strftime("%Y%m%d-%H%M%S")

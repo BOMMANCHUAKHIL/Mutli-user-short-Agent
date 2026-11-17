@@ -62,6 +62,7 @@ MODES = {
     "table": "Table (14 images + labels in one poster)",
     "story": "Story (1 picture + short story about it)",
     "puzzle": "Puzzle / quiz (4 pictures, countdown, answer reveal)",
+    "custom": "Custom (your own HTML template and image count)",
     "mixed": "Mixed (random mode each run)",
 }
 
@@ -108,10 +109,18 @@ def mock_context(mode: str) -> dict:
         return {"title": "Sample story", "story": "A short sample story about the picture. " * 4,
                 "image": placeholder("#457b9d"), "image_label": "Main subject",
                 "hashtags": ["#sample", "#story"], "watermark": "@yourchannel"}
-    return {"title": "Sample puzzle", "question": "Which one does not belong?",
-            "options": [{"label": f"Option {c}", "img": placeholder(cols[i])} for i, c in enumerate("ABCD")],
-            "answer_index": 2, "explanation": "Because it is different.", "reveal": False,
-            "hint": "⏳ A · B · C · D ?", "watermark": "@yourchannel"}
+    # custom
+    images = [placeholder(cols[i % len(cols)]) for i in range(num_images)]
+    labels = [f"Label {i + 1}" for i in range(num_images)]
+    return {
+        "title": "Sample title",
+        "text": "This is sample body text for your custom poster. " * 3,
+        "caption": "Sample caption",
+        "hashtags": ["#sample", "#custom"],
+        "watermark": "@yourchannel",
+        "images": images,
+        "labels": labels,
+    }
 
 
 def show_preview(page_html: str):
@@ -227,11 +236,54 @@ with tab_topic:
 
     mode_keys = list(MODES)
     cur = cfg.get("content_mode", "table")
-    content_mode = st.selectbox("Content mode", mode_keys,
-                                index=mode_keys.index(cur) if cur in mode_keys else 0,
-                                format_func=lambda k: MODES[k])
-    language = st.text_input("Label language", value=cfg.get("language", "English"),
-                             help="e.g. English, Telugu, Hindi")
+    content_mode = st.selectbox(
+        "Content mode", mode_keys,
+        index=mode_keys.index(cur) if cur in mode_keys else 0,
+        format_func=lambda k: MODES[k],
+    )
+
+    # ── CUSTOM MODE UI ─────────────────────────────────────────────────
+    custom_num_images = int(cfg.get("custom_num_images") or 0)
+    custom_html_template = None
+
+    if content_mode == "custom":
+        st.subheader("🧩 Custom template")
+        st.markdown(
+            "**Variables your template receives** (Jinja2, sandboxed, no JS):\n\n"
+            "| Variable | Type | Description |\n"
+            "|---|---|---|\n"
+            "| `title` | str | Poster title (from AI) |\n"
+            "| `text` | str | Main body text (from AI) |\n"
+            "| `caption` | str | Short caption (from AI) |\n"
+            "| `hashtags` | list[str] | Hashtags (from AI) |\n"
+            "| `watermark` | str | Your watermark text |\n"
+            "| `images` | list[str] | Image `data:` URIs (length = number below) |\n"
+            "| `labels` | list[str] | One label per image (from AI) |\n\n"
+            "- Set **number of images to 0** for a text-only poster — no image search is performed.\n"
+            "- Images arrive as `data:` URIs; the renderer blocks all network access.\n"
+            "- Use `{{ value|clean_label }}` to tidy AI text.\n"
+            "- Rendered at **1080 × 1920**."
+        )
+
+        custom_num_images = st.number_input(
+            "Number of images your template needs (0 = text-only)",
+            min_value=0, max_value=20,
+            value=int(cfg.get("custom_num_images") or 0),
+            step=1,
+            key="custom_num_images_input",
+        )
+
+        custom_html_template = st.text_area(
+            "Your HTML template (Jinja2)",
+            value=cfg.get("custom_html_template") or CUSTOM_STARTER,
+            height=460,
+            key="custom_html_template_input",
+        )
+
+    language = st.text_input(
+        "Label language", value=cfg.get("language", "English"),
+        help="e.g. English, Telugu, Hindi",
+    )
     # ── NEW UPLOAD TOGGLES ──
     st.subheader("📤 Upload Targets")
     col_yt, col_fb = st.columns(2)
@@ -298,11 +350,28 @@ with tab_template:
             "HTML template (Jinja). Variables: title, col_a_title, col_b_title, rows "
             "(tag, a_label, a_img, b_label, b_img), tips, watermark. No JavaScript runs.",
             value=cfg.get("html_template") or TABLE_TEMPLATE, height=380)
-    pv_mode = st.radio("Preview", ["table", "story", "puzzle"], horizontal=True)
+    # ── existing "Use my own HTML template for Table" block stays ──
+    ...
+
+    pv_modes = ["table", "story", "puzzle"]
+    if custom_html_template or cfg.get("custom_html_template"):
+        pv_modes.append("custom")
+
+    pv_mode = st.radio("Preview", pv_modes, horizontal=True)
+
     if st.button("Show preview"):
         try:
-            custom = html_template if (pv_mode == "table" and use_custom) else None
-            show_preview(render_html(pv_mode, mock_context(pv_mode), custom))
+            if pv_mode == "custom":
+                tpl = custom_html_template or cfg.get("custom_html_template")
+                if not tpl:
+                    st.error("No custom template provided.")
+                    st.stop()
+                n = int(custom_num_images if custom_num_images is not None
+                        else cfg.get("custom_num_images") or 0)
+                show_preview(render_html("custom", mock_context("custom", n), tpl))
+            else:
+                custom = html_template if (pv_mode == "table" and use_custom) else None
+                show_preview(render_html(pv_mode, mock_context(pv_mode), custom))
         except Exception as e:
             st.error(f"Template error: {e}")
 
@@ -315,7 +384,9 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
     try:
         if live_enabled and not valid_times(live_times):
             raise ValueError("Live go-live time must look like 20:00 (or 09:30, 21:00).")
-
+        if content_mode == "custom":
+            if not custom_html_template or not custom_html_template.strip():
+                raise ValueError("Custom mode requires an HTML template.")
         # Keep existing images unless new ones are uploaded
         youtube_profile_pic_url = cfg.get("youtube_profile_pic_url")
         facebook_profile_pic_url = cfg.get("facebook_profile_pic_url")
@@ -364,6 +435,12 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
             "live_title": live_title.strip() or None,
             "live_privacy": live_privacy,
             "live_layout": live_layout,
+            "custom_num_images": int(custom_num_images or 0),
+            "custom_html_template": (
+                custom_html_template.strip()
+                if content_mode == "custom" and custom_html_template
+                else None
+            ),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 

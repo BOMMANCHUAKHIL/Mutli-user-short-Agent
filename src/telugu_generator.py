@@ -204,19 +204,89 @@ class ContentGenerator:
         good = sum(1 for f in fields if self._has_target_script(f))
         return good / len(fields) >= 0.6
 
-    # ── public ─────────────────────────────────────────────────────────
-    def generate(self, mode: str, topic: str, sub: str = "", attempts: int = 4) -> dict:
+    # ── new prompt ─────────────────────────────────────────────────────────
+    def _prompt_custom(self, topic: str, sub: str, num_images: int) -> str:
+        lang = self.language
+        note = (f"[REMEMBER: all visible text below must be in {lang}. "
+                f"Only 'query'/'alt' are English.]\n")
+        focus = note + f"Main topic: {topic}\nFocus for this video: {sub or 'any aspect'}\n"
+
+        if num_images > 0:
+            item = (f'{{"label": str in {lang} (<=3 words), '
+                    f'"query": short English str (2-4 words), '
+                    f'"alt": short English str}}')
+            image_rule = (
+                f"Produce EXACTLY {num_images} image(s). Each image must have a label in {lang} "
+                f"and a SHORT ENGLISH image search query (2-4 words) that describes the label."
+            )
+            images_field = f'"images": [exactly {num_images} x {item}]'
+        else:
+            image_rule = "Produce NO images (text-only poster). The images field MUST be an empty list []."
+            images_field = '"images": []'
+
+        return focus + (
+                "Create content for a custom vertical (1080x1920) poster.\n"
+                f"{image_rule}\n"
+                "Return ONLY valid JSON with this structure:\n"
+                "{\"title\": str (<=60 chars, in " + lang + "), "
+                                                            "\"text\": str (40-120 words, in " + lang + "), "
+                                                                                                        "\"caption\": str (1-2 sentences in " + lang + "), "
+                                                                                                                                                       "\"hashtags\": [5 short tags in " + lang + "], "
+                + images_field + "}"
+        )
+
+    # ── new validator ──────────────────────────────────────────────────────
+    def _validate_custom(self, d: dict, num_images: int) -> dict:
+        if not isinstance(d, dict):
+            raise ValueError("custom: response was not an object")
+
+        if num_images == 0:
+            images = []
+        else:
+            raw = d.get("images") or []
+            if not isinstance(raw, list):
+                raise ValueError("custom: images is not a list")
+            images = [img for img in (_item(r) for r in raw) if img]
+            if len(images) < num_images:
+                raise ValueError(f"custom: only {len(images)}/{num_images} valid images")
+            images = images[:num_images]
+
+        text = re.sub(r"\s+", " ", str(d.get("text") or "")).strip()
+        if len(text.split()) < 5:
+            raise ValueError("custom: text is missing or too short")
+
+        title = _s(d.get("title"), 60)
+        if not title:
+            raise ValueError("custom: no title")
+
+        return {
+            "mode": "custom",
+            "title": title,
+            "text": text[:2000],
+            "images": images,
+            **_meta(d),
+        }
+
+    # ── replace existing generate() ────────────────────────────────────────
+    def generate(self, mode: str, topic: str, sub: str = "",
+                 attempts: int = 4, *, num_images: int = 0) -> dict:
         kind = random.choice(["odd_one_out", "quiz"]) if mode == "puzzle" else ""
         last = None
         for _ in range(attempts):
             try:
-                d = self.pool.chat_json(self._system(), self._prompt(mode, topic, sub, kind))
-                if mode == "table":
-                    result = self._validate_table(d)
-                elif mode == "story":
-                    result = self._validate_story(d)
+                if mode == "custom":
+                    d = self.pool.chat_json(
+                        self._system(), self._prompt_custom(topic, sub, num_images)
+                    )
+                    result = self._validate_custom(d, num_images)
                 else:
-                    result = self._validate_puzzle(kind, d)
+                    d = self.pool.chat_json(self._system(), self._prompt(mode, topic, sub, kind))
+                    if mode == "table":
+                        result = self._validate_table(d)
+                    elif mode == "story":
+                        result = self._validate_story(d)
+                    else:
+                        result = self._validate_puzzle(kind, d)
 
                 if not self._language_ok(result):
                     last = ValueError(f"visible text not in {self.language}")
@@ -224,4 +294,25 @@ class ContentGenerator:
                 return result
             except (ValueError, KeyError, AttributeError, TypeError) as e:
                 last = e
-        raise RuntimeError(f"Could not generate valid {mode} content in {self.language}: {last}")
+        raise RuntimeError(
+            f"Could not generate valid {mode} content in {self.language}: {last}"
+        )
+
+    # ── extend _visible_fields ─────────────────────────────────────────────
+    def _visible_fields(self, c: dict) -> list[str]:
+        out = [c.get("title", ""), c.get("caption", ""), c.get("yt_title", "")]
+        if c["mode"] == "table":
+            out += [c.get("col_a_title", ""), c.get("col_b_title", "")]
+            for r in c.get("rows", []):
+                out += [r.get("tag", ""), r["a"].get("label", ""), r["b"].get("label", "")]
+            out += c.get("tips", [])
+        elif c["mode"] == "story":
+            out += [c.get("story", ""), c["image"].get("label", "")]
+        elif c["mode"] == "custom":
+            out += [c.get("text", "")]
+            out += [img.get("label", "") for img in c.get("images", [])]
+        else:
+            out += [c.get("question", ""), c.get("explanation", "")]
+            out += [o.get("label", "") for o in c.get("options", [])]
+        out += c.get("hashtags", [])
+        return [x for x in out if x and str(x).strip()]
