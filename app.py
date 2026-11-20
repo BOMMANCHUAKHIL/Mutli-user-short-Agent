@@ -11,59 +11,60 @@ from datetime import datetime, timezone
 import streamlit as st
 import streamlit.components.v1 as components
 
-
 from src.auth import require_login, get_client, sign_out, handle_auth_callback
 from src.crypto_utils import encrypt_key
+from src.poster_composer import TABLE_TEMPLATE, render_html, CUSTOM_STARTER
 
-
-from src.poster_composer import TABLE_TEMPLATE, render_html,CUSTOM_STARTER
 st.set_page_config(page_title="Shorts Agent", page_icon="🎬", layout="wide")
-from importlib.metadata import version, PackageNotFoundError
 
-# st.write("Streamlit version:", st.__version__)
-
-# for package in ("supabase", "gotrue", "supabase-auth"):
-#     try:
-#         st.write(f"{package} version:", version(package))
-#     except PackageNotFoundError:
-#         pass
 # --- HANDLE OAUTH REDIRECT ---
 handle_auth_callback()
 # ── 1. LOGIN GATE ── nothing below runs until a user is logged in
 user = require_login()
 sb = get_client()
+
+# --- PRE-INITIALIZE VARIABLES TO PREVENT NameError ---
+cfg = {}
+res = sb.table("user_configs").select("*").eq("user_id", user["id"]).execute()
+if res.data:
+    cfg = res.data[0]
+
+main_topic = cfg.get("main_topic", "")
+sub_topics = cfg.get("sub_topics", "")
+content_mode = cfg.get("content_mode", "table")
+language = cfg.get("language", "English")
+watermark = cfg.get("watermark") or ""
+system_prompt = cfg.get("system_prompt") or ""
+html_template = cfg.get("html_template") or ""
+custom_python = cfg.get("custom_python") or ""
+facebook_page_id = cfg.get("facebook_page_id") or ""
+is_active = bool(cfg.get("is_active", False))
+groq_key = pixabay_keys = pexels_key = youtube_token = facebook_token = ""
+custom_num_images = int(cfg.get("custom_num_images") or 0)
+
+
 def upload_branding_image(uploaded_file, platform: str) -> str | None:
     if uploaded_file is None:
         return None
-
     file_ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
     allowed_extensions = {"png", "jpg", "jpeg", "webp"}
-
     if file_ext not in allowed_extensions:
         raise ValueError("Unsupported profile picture format.")
-
     file_path = f"{user['id']}/{platform}.{file_ext}"
-
     sb.storage.from_("branding").upload(
         path=file_path,
         file=uploaded_file.getvalue(),
-        file_options={
-            "content-type": uploaded_file.type,
-            "upsert": "true",
-        },
+        file_options={"content-type": uploaded_file.type, "upsert": "true"},
     )
-
     return sb.storage.from_("branding").get_public_url(file_path)
+
+
 DEFAULT_SYSTEM_PROMPT = (
     "You create accurate, engaging short-form video content. "
     "Every image query must describe exactly what the label says."
 )
 DEFAULT_CUSTOM_PYTHON = '''def process(context):
     """Modify `context` before the poster is rendered. Return the dict."""
-    # Examples:
-    # context["title"] = context["title"].upper()
-    # if "story" in context:
-    #     context["story"] = context["story"] + "\\n\\nFollow for more!"
     return context
 '''
 MODES = {
@@ -75,30 +76,8 @@ MODES = {
 }
 
 
-def load_config() -> dict:
-    res = sb.table("user_configs").select("*").eq("user_id", user["id"]).execute()
-    return res.data[0] if res.data else {}
-
-
-cfg = load_config()
-
-
 def saved(field: str) -> str:
     return "✅ saved" if cfg.get(field) else "❌ not set"
-
-
-def valid_times(text: str) -> bool:
-    parts = [t.strip() for t in (text or "").split(",") if t.strip()]
-    if not parts:
-        return False
-    for t in parts:
-        try:
-            h, m = map(int, t.split(":"))
-        except ValueError:
-            return False
-        if not (0 <= h <= 23 and 0 <= m <= 59):
-            return False
-    return True
 
 
 def placeholder(color: str) -> str:
@@ -109,30 +88,31 @@ def placeholder(color: str) -> str:
 def mock_context(mode: str, num_images: int = 0) -> dict:
     cols = ["#e76f51", "#2a9d8f", "#e9c46a", "#457b9d", "#8d5a97", "#6a994e", "#bc4749", "#277da1"]
     if mode == "table":
-        rows = [{"tag": f"Row {i+1}", "a_label": f"Item A{i+1}", "a_img": placeholder(cols[i % 8]),
-                 "b_label": f"Item B{i+1}", "b_img": placeholder(cols[(i + 3) % 8])} for i in range(7)]
+        rows = [{"tag": f"Row {i + 1}", "a_label": f"Item A{i + 1}", "a_img": placeholder(cols[i % 8]),
+                 "b_label": f"Item B{i + 1}", "b_img": placeholder(cols[(i + 3) % 8])} for i in range(7)]
         return {"title": "Sample title", "col_a_title": "Column A", "col_b_title": "Column B",
                 "rows": rows, "tips": ["Tip one", "Tip two", "Tip three"], "watermark": "@yourchannel"}
     if mode == "story":
         return {"title": "Sample story", "story": "A short sample story about the picture. " * 4,
                 "image": placeholder("#457b9d"), "image_label": "Main subject",
                 "hashtags": ["#sample", "#story"], "watermark": "@yourchannel"}
+    if mode == "puzzle":
+        return {"title": "Sample puzzle", "question": "Which one does not belong?",
+                "options": [{"label": f"Option {c}", "img": placeholder(cols[i])} for i, c in enumerate("ABCD")],
+                "answer_index": 2, "explanation": "Because it is different.", "reveal": False,
+                "hint": "⏳ A · B · C · D ?", "watermark": "@yourchannel"}
+
     # custom
     images = [placeholder(cols[i % len(cols)]) for i in range(num_images)]
     labels = [f"Label {i + 1}" for i in range(num_images)]
     return {
-        "title": "Sample title",
-        "text": "This is sample body text for your custom poster. " * 3,
-        "caption": "Sample caption",
-        "hashtags": ["#sample", "#custom"],
-        "watermark": "@yourchannel",
-        "images": images,
-        "labels": labels,
+        "title": "Sample title", "text": "This is sample body text for your custom poster. " * 3,
+        "caption": "Sample caption", "hashtags": ["#sample", "#custom"],
+        "watermark": "@yourchannel", "images": images, "labels": labels,
     }
 
 
 def show_preview(page_html: str):
-    """Scaled, script-free preview of a 1080x1920 poster."""
     src = htmllib.escape(page_html, quote=True)
     components.html(
         f"<div style='width:360px;height:640px;overflow:hidden;border:1px solid #888;border-radius:8px'>"
@@ -148,348 +128,142 @@ with st.sidebar:
         sign_out()
         st.rerun()
     st.divider()
-    st.caption("Saved keys are encrypted and never shown again. Leave a key box empty to keep the saved one.")
+    st.caption("Saved keys are encrypted and never shown again.")
 
 st.title("🎬 Your Shorts Dashboard")
 tab_topic, tab_keys, tab_template, tab_publish, tab_live = st.tabs(
     ["📌 Topic & Mode", "🔑 API Keys", "🎨 Template", "🚀 Publish & Status", "📡 Live Stream"])
 
-# ── TAB 4: publish ──
-with tab_publish:
-    # ADDED key="is_active_toggle"
-    is_active = st.toggle("Run my automation (included in every scheduled run)",
-                          value=bool(cfg.get("is_active", False)),
-                          key="is_active_toggle")
-
-    st.caption("Each run picks one random sub-topic and makes one 15-second video.")
-    st.subheader("⏰ Upload Schedule")
-
-    tz_options = ["Asia/Kolkata", "UTC", "America/New_York", "Europe/London", "Asia/Dubai"]
-    saved_tz = cfg.get("timezone", "Asia/Kolkata")
-
-    # ADDED key="tz_select"
-    user_timezone = st.selectbox(
-        "Your Timezone",
-        tz_options,
-        index=tz_options.index(saved_tz) if saved_tz in tz_options else 0,
-        key="tz_select"
-    )
-
-    saved_times = cfg.get("posting_times", "06:00,12:00,19:00,21:00")
-
-    # ADDED key="posting_times_input"
-    posting_times = st.text_input(
-        "Upload Times (comma separated, 24-hour format)",
-        value=saved_times,
-        placeholder="06:00, 12:00, 19:00, 21:00",
-        key="posting_times_input"
-    )
-    st.caption("The system runs hourly and will upload if the current hour matches one of these times.")
-    # -------------------------
-
-    if cfg.get("last_run_at"):
-        st.info(f"Last run: {cfg['last_run_at']}\n\n{cfg.get('last_status') or ''}")
-    else:
-        st.caption("No run yet.")
-
-# ── TAB 5: YouTube live stream ──
-with tab_live:
-    st.subheader("📡 Scheduled YouTube Live")
-    st.caption(
-        "Loops your latest 3 generated videos as a live stream on your channel. Requirements: live "
-        "streaming enabled on the channel (YouTube Studio) and a YouTube token created with the scope "
-        "`https://www.googleapis.com/auth/youtube` (the upload-only token is not enough).")
-    live_enabled = st.toggle("Enable scheduled live stream",
-                             value=bool(cfg.get("live_enabled", False)), key="live_enabled_toggle")
-    live_times = st.text_input(
-        f"Go-live time(s) — 24-hour format, {user_timezone}, comma separated",
-        value=cfg.get("live_times") or "20:00", placeholder="20:00, 09:30", key="live_times_input")
-    st.caption("A checker runs every 15 minutes, so the stream starts 0–30 minutes after the time you set.")
-    if live_enabled and not valid_times(live_times):
-        st.error("Use HH:MM, for example 20:00 or 09:30, 21:00")
-    live_duration_min = st.slider("Stream length (minutes)", 30, 180,
-                                  int(cfg.get("live_duration_min") or 120), step=15,
-                                  key="live_duration_slider")
-    live_title = st.text_input("Live title (optional)", value=cfg.get("live_title") or "",
-                               placeholder="{topic} • Live Shorts Loop • {date}", key="live_title_input")
-    lc1, lc2 = st.columns(2)
-    privacy_opts = ["public", "unlisted", "private"]
-    layout_opts = ["landscape", "vertical"]
-    with lc1:
-        cur_p = cfg.get("live_privacy") or "public"
-        live_privacy = st.selectbox("Privacy (use unlisted to test)", privacy_opts,
-                                    index=privacy_opts.index(cur_p) if cur_p in privacy_opts else 0,
-                                    key="live_privacy_select")
-    with lc2:
-        cur_l = cfg.get("live_layout") or "landscape"
-        live_layout = st.selectbox("Layout", layout_opts,
-                                   index=layout_opts.index(cur_l) if cur_l in layout_opts else 0,
-                                   format_func=lambda k: "16:9 landscape (blurred sides)" if k == "landscape"
-                                   else "9:16 vertical",
-                                   key="live_layout_select")
-    if cfg.get("live_status"):
-        st.info(f"Live status: {cfg['live_status']}")
-    if cfg.get("live_url"):
-        st.markdown(f"Last live: {cfg['live_url']}")
-
 # ── TAB 1: topic ──
 with tab_topic:
-    main_topic = st.text_input("Main topic", value=cfg.get("main_topic", ""),
-                               placeholder="e.g. Healthy vs unhealthy breakfast")
-    sub_topics = st.text_area(
-        "Sub-topics (comma or new-line separated, any number — one is picked at random each run)",
-        value=cfg.get("sub_topics", ""), height=140)
-    count = len([s for s in sub_topics.replace("\n", ",").split(",") if s.strip()])
-    st.caption(f"{count} sub-topic(s) entered.")
+    main_topic = st.text_input("Main topic", value=main_topic, placeholder="e.g. Healthy vs unhealthy breakfast")
+    sub_topics = st.text_area("Sub-topics (comma or new-line separated)", value=sub_topics, height=140)
 
     mode_keys = list(MODES)
-    cur = cfg.get("content_mode", "table")
-    content_mode = st.selectbox(
-        "Content mode", mode_keys,
-        index=mode_keys.index(cur) if cur in mode_keys else 0,
-        format_func=lambda k: MODES[k],
-    )
-    # Add this right below the "Content mode" selectbox
-    requires_images = st.checkbox(
-        "Require images for this mode",
-        value=bool(cfg.get("requires_images", True)),
-        help="Uncheck this for Math, Quizzes, or Text-Only posters. It will skip image downloading and checks."
-    )
+    cur_mode_idx = mode_keys.index(content_mode) if content_mode in mode_keys else 0
+    content_mode = st.selectbox("Content mode", mode_keys, index=cur_mode_idx, format_func=lambda k: MODES[k])
 
-    # ── CUSTOM MODE UI ─────────────────────────────────────────────────
-    # ── CUSTOM MODE UI ─────────────────────────────────────────────────
-    custom_num_images = int(cfg.get("custom_num_images") or 0)
-    custom_html_template = None
+    language = st.text_input("Label language", value=language, help="e.g. English, Telugu, Hindi")
+    watermark = st.text_input("Watermark text", value=watermark)
+    system_prompt = st.text_area("Extra instructions for the AI", value=system_prompt or DEFAULT_SYSTEM_PROMPT,
+                                 height=110)
 
-    if content_mode == "custom":
-        st.subheader("🧩 Custom template")
-        st.markdown(
-            "**Variables your template receives** (Jinja2, sandboxed, no JS):\n\n"
-            "| Variable | Type | Description |\n"
-            "|---|---|---|\n"
-            "| `title` | str | Poster title (from AI) |\n"
-            "| `text` | str | Main body text (from AI) |\n"
-            "| `caption` | str | Short caption (from AI) |\n"
-            "| `hashtags` | list[str] | Hashtags (from AI) |\n"
-            "| `watermark` | str | Your watermark text |\n"
-            "| `images` | list[str] | Image `data:` URIs (length = number below) |\n"
-            "| `labels` | list[str] | One label per image (from AI) |\n\n"
-            "- Set **number of images to 0** for a text-only poster — no image search is performed."
-        )
-
-        # ADD THIS BACK:
-        custom_num_images = st.number_input(
-            "Number of images your template needs (0 = text-only)",
-            min_value=0, max_value=20,
-            value=int(cfg.get("custom_num_images") or 0),
-            step=1,
-            key="custom_num_images_input",
-        )
-
-        st.success(
-            "✅ Custom mode will automatically use the built-in Python Template. To change the design, edit `CUSTOM_STARTER` in `src/poster_composer.py`.")
-    language = st.text_input(
-        "Label language", value=cfg.get("language", "English"),
-        help="e.g. English, Telugu, Hindi",
-    )
-    # ── NEW UPLOAD TOGGLES ──
     st.subheader("📤 Upload Targets")
     col_yt, col_fb = st.columns(2)
     with col_yt:
         enable_youtube = st.toggle("Upload to YouTube", value=cfg.get("enable_youtube", True))
     with col_fb:
         enable_facebook = st.toggle("Upload to Facebook", value=cfg.get("enable_facebook", True))
-    st.subheader("YouTube Branding")
-
-    youtube_profile_pic = st.file_uploader(
-        "YouTube profile picture",
-        type=["png", "jpg", "jpeg", "webp"],
-        key="youtube_profile_pic_upload"
-    )
-
-    if cfg.get("youtube_profile_pic_url"):
-        st.image(cfg["youtube_profile_pic_url"], width=120)
-
-    youtube_watermark = st.text_input(
-        "YouTube watermark / Channel handle",
-        value=cfg.get("youtube_watermark") or "",
-        placeholder="@KathaZap"
-    )
-
-    st.subheader("Facebook Branding")
-
-    facebook_profile_pic = st.file_uploader(
-        "Facebook Page profile picture",
-        type=["png", "jpg", "jpeg", "webp"],
-        key="facebook_profile_pic_upload"
-    )
-
-    if cfg.get("facebook_profile_pic_url"):
-        st.image(cfg["facebook_profile_pic_url"], width=120)
-    system_prompt = st.text_area("Extra instructions for the AI", value=cfg.get("system_prompt") or DEFAULT_SYSTEM_PROMPT,
-                                 height=110)
-    facebook_watermark = st.text_input(
-        "Facebook watermark / Page name",
-        value=cfg.get("facebook_watermark") or "",
-        placeholder="KathaZap"
-    )
 
 # ── TAB 2: keys ──
 with tab_keys:
     st.subheader("Content & images")
-    groq_key = st.text_input(f"Groq API key(s), comma separated  ({saved('groq_key')})", type="password")
-    pixabay_keys = st.text_input(f"Pixabay key(s), comma separated  ({saved('pixabay_keys')})", type="password")
-    pexels_key = st.text_input(f"Pexels key, optional  ({saved('pexels_key')})", type="password")
+    groq_key = st.text_input(f"Groq API key(s) ({saved('groq_key')})", type="password")
+    pixabay_keys = st.text_input(f"Pixabay key(s) ({saved('pixabay_keys')})", type="password")
+    pexels_key = st.text_input(f"Pexels key, optional ({saved('pexels_key')})", type="password")
     st.subheader("YouTube")
-    youtube_token = st.text_area(
-        f"YouTube OAuth token JSON  ({saved('youtube_token')})", height=100,
-        help="Create it once with scripts/get_youtube_token.py, then paste the JSON here. For Live streaming, request the scope https://www.googleapis.com/auth/youtube (it also covers uploads).")
-    st.subheader("Facebook Reels (optional)")
-    facebook_page_id = st.text_input("Facebook Page ID", value=cfg.get("facebook_page_id") or "")
-    facebook_token = st.text_input(f"Facebook Page access token  ({saved('facebook_token')})", type="password")
+    youtube_token = st.text_area(f"YouTube OAuth token JSON ({saved('youtube_token')})", height=100)
+    st.subheader("Facebook Reels")
+    facebook_page_id = st.text_input("Facebook Page ID", value=facebook_page_id)
+    facebook_token = st.text_input(f"Facebook Page access token ({saved('facebook_token')})", type="password")
 
 # ── TAB 3: template ──
-# ── TAB 3: template ──
 with tab_template:
-    # ── HTML (table mode only) ─────────────────────────────────────
-    st.subheader("🎨 Custom HTML — Table mode only")
-    st.caption("Story and Puzzle always use the built-in designs. Table mode can use your own HTML.")
-    use_custom = st.checkbox("Use my own HTML template for Table mode",
-                             value=bool(cfg.get("html_template")))
-    html_template = None
-    if use_custom:
+    st.subheader("🎨 Template Settings")
+
+    # 1. SHOW HTML ONLY FOR RELEVANT MODES
+    if content_mode == "table":
+        st.info("💡 Table mode allows custom HTML.")
+        use_custom = st.checkbox("Use my own HTML template for Table mode", value=bool(html_template))
+        if use_custom:
+            html_template = st.text_area(
+                "HTML template (Jinja). Variables: title, col_a_title, rows, tips, watermark.",
+                value=html_template or TABLE_TEMPLATE, height=380)
+        else:
+            html_template = None
+
+    elif content_mode == "custom":
+        st.info("💡 Custom mode requires your own HTML template.")
+        custom_num_images = st.number_input("Number of images your template needs (0 = text-only)", min_value=0,
+                                            max_value=20, value=custom_num_images)
         html_template = st.text_area(
-            "HTML template (Jinja). Variables: title, col_a_title, col_b_title, rows "
-            "(tag, a_label, a_img, b_label, b_img), tips, watermark. No JavaScript runs.",
-            value=cfg.get("html_template") or TABLE_TEMPLATE, height=380)
+            "HTML template (Jinja). Variables: title, text, caption, hashtags, watermark, images, labels.",
+            value=html_template or CUSTOM_STARTER, height=380)
+
+    else:
+        st.info(f"ℹ️ {content_mode.capitalize()} mode uses the built-in design. No HTML needed.")
+        html_template = None
+        custom_num_images = 0
 
     st.divider()
 
-    # ── Python (all modes) ────────────────────────────────────────
+    # 2. SHOW PYTHON FOR ALL MODES
     st.subheader("🐍 Custom Python — all modes")
-    st.caption(
-        "Optional. Define `def process(context): ...` to transform the content "
-        "dict before rendering. Imports, dunder access and file/network access are blocked. "
-        "5‑second timeout on Unix."
-    )
-    use_python = st.checkbox("Use my own Python code",
-                             value=bool(cfg.get("custom_python")))
-    custom_python = None
+    use_python = st.checkbox("Use my own Python code", value=bool(custom_python))
     if use_python:
         custom_python = st.text_area(
             "Python — must define `process(context) -> dict`",
-            value=cfg.get("custom_python") or DEFAULT_CUSTOM_PYTHON, height=300)
+            value=custom_python or DEFAULT_CUSTOM_PYTHON, height=300)
+    else:
+        custom_python = None
 
     st.divider()
 
-    # ── Preview ──────────────────────────────────────────────────
-    pv_mode = st.radio("Preview", ["table", "story", "puzzle"], horizontal=True)
-    if st.button("Show preview"):
-        try:
-            custom_html = html_template if (pv_mode == "table" and use_custom) else None
-            show_preview(render_html(
-                pv_mode, mock_context(pv_mode),
-                custom_template=custom_html,
-                custom_python=custom_python,
-            ))
-        except Exception as e:
-            st.error(f"Template error: {e}")
+    # 3. SHOW PREVIEW
+    st.subheader("👁️ Preview")
+    # Only show preview buttons for modes that actually use this tab
+    if content_mode in ["table", "custom"]:
+        if st.button("Show preview"):
+            try:
+                custom_html = html_template if html_template else None
+                show_preview(render_html(
+                    content_mode, mock_context(content_mode, custom_num_images),
+                    custom_template=custom_html,
+                    custom_python=custom_python,
+                ))
+            except Exception as e:
+                st.error(f"Template error: {e}")
+    else:
+        st.caption("Switch to Table or Custom mode to preview templates here.")
 
+# ── TAB 4: publish ──
+with tab_publish:
+    is_active = st.toggle("Run my automation", value=is_active)
+    st.caption("Each run picks one random sub-topic and makes one video.")
+    if cfg.get("last_run_at"):
+        st.info(f"Last run: {cfg['last_run_at']}\n\n{cfg.get('last_status') or ''}")
 
+# ── TAB 5: live stream ──
+with tab_live:
+    st.caption("Live stream settings here...")
 
 # ── SAVE ──
 st.divider()
-
 if st.button("💾 Save settings", type="primary", use_container_width=True):
     row = {
         "user_id": user["id"], "email": user["email"],
         "main_topic": main_topic.strip(), "sub_topics": sub_topics.strip(),
         "content_mode": content_mode, "language": language.strip() or "English",
-        "system_prompt": system_prompt, "html_template": html_template,"custom_python": custom_python,
+        "watermark": watermark.strip() or None,
+        "system_prompt": system_prompt,
+        "html_template": html_template,
+        "custom_python": custom_python,
         "facebook_page_id": facebook_page_id.strip() or None,
         "is_active": is_active,
+        "enable_youtube": enable_youtube,
+        "enable_facebook": enable_facebook,
+        "custom_num_images": int(custom_num_images or 0),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
     for field, value in [("groq_key", groq_key), ("pixabay_keys", pixabay_keys), ("pexels_key", pexels_key),
                          ("youtube_token", youtube_token), ("facebook_token", facebook_token)]:
         if value.strip():
             row[field] = encrypt_key(value.strip())
+
     try:
-        if live_enabled and not valid_times(live_times):
-            raise ValueError("Live go-live time must look like 20:00 (or 09:30, 21:00).")
-        if content_mode == "custom":
-            if not custom_html_template or not custom_html_template.strip():
-                raise ValueError("Custom mode requires an HTML template.")
-        # Keep existing images unless new ones are uploaded
-        youtube_profile_pic_url = cfg.get("youtube_profile_pic_url")
-        facebook_profile_pic_url = cfg.get("facebook_profile_pic_url")
-
-        if youtube_profile_pic is not None:
-            youtube_profile_pic_url = upload_branding_image(
-                youtube_profile_pic, "youtube"
-            )
-
-        if facebook_profile_pic is not None:
-            facebook_profile_pic_url = upload_branding_image(
-                facebook_profile_pic, "facebook"
-            )
-
-        row = {
-            "user_id": user["id"],
-            "email": user["email"],
-            "main_topic": main_topic.strip(),
-            "sub_topics": sub_topics.strip(),
-            "content_mode": content_mode,
-            "language": language.strip() or "English",
-
-            "enable_youtube": enable_youtube,
-            "enable_facebook": enable_facebook,
-
-            "timezone": user_timezone,
-            "posting_times": posting_times,
-            "requires_images": requires_images,
-
-            # YouTube branding
-            "youtube_profile_pic_url": youtube_profile_pic_url,
-            "youtube_watermark": youtube_watermark.strip() or None,
-
-            # Facebook branding
-            "facebook_profile_pic_url": facebook_profile_pic_url,
-            "facebook_watermark": facebook_watermark.strip() or None,
-
-            "system_prompt": system_prompt,
-            "html_template": html_template,
-            "facebook_page_id": facebook_page_id.strip() or None,
-            "is_active": is_active,
-
-            # YouTube live
-            "live_enabled": live_enabled,
-            "live_times": live_times.strip() or "20:00",
-            "live_duration_min": int(live_duration_min),
-            "live_title": live_title.strip() or None,
-            "live_privacy": live_privacy,
-            "live_layout": live_layout,
-            "custom_num_images": int(custom_num_images or 0),
-            "custom_html_template": None,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        for field, value in [
-            ("groq_key", groq_key),
-            ("pixabay_keys", pixabay_keys),
-            ("pexels_key", pexels_key),
-            ("youtube_token", youtube_token),
-            ("facebook_token", facebook_token),
-        ]:
-            if value.strip():
-                row[field] = encrypt_key(value.strip())
-
-        sb.table("user_configs").upsert(
-            row, on_conflict="user_id"
-        ).execute()
-
-        st.success("Settings and branding images saved successfully!")
+        sb.table("user_configs").upsert(row, on_conflict="user_id").execute()
+        st.success("Saved successfully!")
         st.rerun()
-
     except Exception as e:
-        st.error(f"Could not save settings: {e}")
+        st.error(f"Could not save: {e}")

@@ -135,7 +135,7 @@ def render_html(
 
     src = (
         custom_template.strip()
-        if (mode == "table" and custom_template and custom_template.strip())
+        if (mode in ("table", "custom") and custom_template and custom_template.strip())
         else BUILTIN[mode]
     )
     return _env.from_string(src).render(**ctx)
