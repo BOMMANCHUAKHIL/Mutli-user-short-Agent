@@ -399,7 +399,6 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
         "user_id": user["id"], "email": user["email"],
         "main_topic": main_topic.strip(), "sub_topics": sub_topics.strip(),
         "content_mode": content_mode, "language": language.strip() or "English",
-        "watermark": watermark.strip() or None,
         "system_prompt": system_prompt, "html_template": html_template,"custom_python": custom_python,
         "facebook_page_id": facebook_page_id.strip() or None,
         "is_active": is_active,
@@ -445,7 +444,7 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
 
             # YouTube branding
             "youtube_profile_pic_url": youtube_profile_pic_url,
-            "watermark": youtube_watermark.strip() or None,
+            "youtube_watermark": youtube_watermark.strip() or None,
 
             # Facebook branding
             "facebook_profile_pic_url": facebook_profile_pic_url,
