@@ -92,7 +92,7 @@ h1{font-size:56px;text-align:center;line-height:1.2;margin-bottom:20px}
 {% else %}<div class="hint">{{ hint }}</div>{% endif %}
 </div>{% if watermark %}<div class="wm">{{ watermark }}</div>{% endif %}</body></html>"""
 
-BUILTIN = {"table": TABLE_TEMPLATE, "story": STORY_TEMPLATE, "puzzle": PUZZLE_TEMPLATE}
+BUILTIN = {"table": TABLE_TEMPLATE, "story": STORY_TEMPLATE, "puzzle": PUZZLE_TEMPLATE }
 
 # ── after PUZZLE_TEMPLATE ──────────────────────────────────────────────
 CUSTOM_STARTER = """<!doctype html><html><head><meta charset="utf-8"><style>""" + BASE_CSS + """
@@ -113,7 +113,7 @@ p{font-size:38px;line-height:1.5;text-align:center;margin-top:24px}
 <div class="tags">{{ hashtags|join(' ') }}</div>
 </div>{% if watermark %}<div class="wm">{{ watermark }}</div>{% endif %}</body></html>"""
 
-BUILTIN = {"table": TABLE_TEMPLATE, "story": STORY_TEMPLATE, "puzzle": PUZZLE_TEMPLATE}
+BUILTIN = {"table": TABLE_TEMPLATE, "story": STORY_TEMPLATE, "puzzle": PUZZLE_TEMPLATE,"custom": CUSTOM_STARTER }
 
 
 # replace the existing render_html at the bottom with:

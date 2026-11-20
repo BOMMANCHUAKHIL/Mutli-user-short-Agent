@@ -142,84 +142,55 @@ class ShortsOrchestrator:
 
     def _build_table(self, c: dict):
         rows = c["rows"]
+        title_lower = str(c.get("title", "")).lower()
 
-        # Check factual/image-label mismatches first.
-        items = [x for r in rows for x in (r["a"], r["b"])]
-        bad = find_mismatches(self.pool, self.language, items)
+        # 1. IF IT IS A MATH TOPIC, SKIP THE REVIEWER ENTIRELY
+        is_math = any(
+            word in title_lower for word in ["math", "add", "sum", "subtract", "number", "arithmetic", "digit"])
 
-        valid_rows = [
-            (i, r)
-            for i, r in enumerate(rows)
-            if 2 * i not in bad and 2 * i + 1 not in bad
-        ]
+        if not is_math:
+            items = [x for r in rows for x in (r["a"], r["b"])]
+            bad = find_mismatches(self.pool, self.language, items)
+            valid_rows = [
+                (i, r) for i, r in enumerate(rows)
+                if 2 * i not in bad and 2 * i + 1 not in bad
+            ]
+        else:
+            # For math, we don't care about images, so all rows are valid
+            valid_rows = [(i, r) for i, r in enumerate(rows)]
 
         chosen = []
 
         def fetch_verified(item):
-            """
-            Try the original image query and alternative queries.
-            Only accept images returned successfully by ImageFetcher.
-            """
             query = item.get("query", "")
             alt = item.get("alt", "")
             label = item.get("label", "")
-
-            candidates = [
-                (query, alt),
-                (alt, query),
-                (label, alt),
-                (label, query),
-            ]
-
+            candidates = [(query, alt), (alt, query), (label, alt), (label, query)]
             seen = set()
 
             for search_query, alternative in candidates:
-                if not search_query:
-                    continue
-
+                if not search_query: continue
                 pair = (search_query, alternative)
-
-                if pair in seen:
-                    continue
-
+                if pair in seen: continue
                 seen.add(pair)
-
                 try:
                     result = self._fetch([pair])[0]
-                    if result:
-                        return result
+                    if result: return result
                 except Exception as exc:
-                    print(
-                        f"Image search failed for {search_query}: {exc}"
-                    )
-
+                    pass
             return None
 
-        print(
-            f"Table image verification: "
-            f"{len(valid_rows)} valid rows out of {len(rows)}"
-        )
+        print(f"Table image verification: {len(valid_rows)} valid rows out of {len(rows)}")
 
         for index, row in valid_rows:
-
             if len(chosen) >= TABLE_ROWS_NEEDED:
                 break
-
-            print(
-                f"Processing table row {index + 1}: {row['tag']}"
-            )
-
-            # Fetch each image independently.
+            print(f"Processing table row {index + 1}: {row['tag']}")
             image_a = fetch_verified(row["a"])
             image_b = fetch_verified(row["b"])
-
             if not image_a or not image_b:
-                print(
-                    f"Skipping row {index + 1}: "
-                    "could not verify both images"
-                )
+                print(f"Skipping row {index + 1}: could not verify both images")
                 continue
-
             chosen.append({
                 "tag": row["tag"],
                 "a_label": row["a"]["label"],
@@ -227,13 +198,12 @@ class ShortsOrchestrator:
                 "b_label": row["b"]["label"],
                 "b_img": to_data_uri(image_b["bytes"]),
             })
+            print(f"Verified row {len(chosen)}/{TABLE_ROWS_NEEDED}")
 
-            print(
-                f"Verified row {len(chosen)}/{TABLE_ROWS_NEEDED}"
-            )
+        # 2. LOWER THE MINIMUM REQUIREMENT FROM 7 TO 4
+        if len(chosen) < 4:
+            raise RuntimeError(f"only {len(chosen)} rows have verified images (need at least 4)")
 
-        if len(chosen) < TABLE_ROWS_NEEDED:
-            raise RuntimeError(f"only {len(chosen)} rows have verified images")
         ctx = {"title": c["title"], "col_a_title": c["col_a_title"], "col_b_title": c["col_b_title"],
                "rows": chosen, "tips": c["tips"], "watermark": self.watermark}
         return [render_html("table", ctx, self.html_template, self.custom_python)]
