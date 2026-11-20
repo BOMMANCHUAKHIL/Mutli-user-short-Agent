@@ -16,7 +16,7 @@ from src.auth import require_login, get_client, sign_out, handle_auth_callback
 from src.crypto_utils import encrypt_key
 
 
-from src.poster_composer import TABLE_TEMPLATE, render_html
+from src.poster_composer import TABLE_TEMPLATE, render_html,CUSTOM_STARTER
 st.set_page_config(page_title="Shorts Agent", page_icon="🎬", layout="wide")
 from importlib.metadata import version, PackageNotFoundError
 
