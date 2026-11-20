@@ -9,7 +9,7 @@ from .facebook_uploader import upload_reel
 from .food_fetcher import ImageFetcher, to_data_uri
 from .groq_pool import GroqPool
 from .html_renderer import render_many
-from .poster_composer import render_html
+from .poster_composer import render_html,CUSTOM_STARTER
 from .reviewer_agent import find_mismatches
 from .telugu_generator import ContentGenerator, TABLE_ROWS_NEEDED
 from .video_composer import compose_video, _next_music
@@ -96,7 +96,8 @@ class ShortsOrchestrator:
         self.cfg = config or load_config()
         self.topic, self.sub = topic, subtopic
         self.language = language or "English"
-        self.mode = mode if mode in ("table", "story", "puzzle", "mixed") else "table"
+        # Change this line to include "custom":
+        self.mode = mode if mode in ("table", "story", "puzzle", "mixed", "custom") else "table"
         self.html_template = html_template
         self.custom_html_template = (
             custom_html_template if custom_html_template is not None
@@ -279,9 +280,8 @@ class ShortsOrchestrator:
 
     # ── new builder ────────────────────────────────────────────────────────
     def _build_custom(self, c: dict):
-        if not self.custom_html_template or not self.custom_html_template.strip():
-            raise RuntimeError("Custom mode requires an HTML template.")
-
+        # We no longer check self.custom_html_template.
+        # It will ALWAYS use the CUSTOM_STARTER from the Python file.
         images = c.get("images") or []
         if images:
             res = self._fetch([(img["query"], img["alt"]) for img in images])
@@ -304,7 +304,8 @@ class ShortsOrchestrator:
             "images": image_uris,
             "labels": labels,
         }
-        return [render_html("custom", ctx, self.custom_html_template)]
+        # Use CUSTOM_STARTER directly
+        return [render_html("custom", ctx, CUSTOM_STARTER)]
 
     # ── main entry ─────────────────────────────────────────────────────
     def run_cycle(self) -> dict:

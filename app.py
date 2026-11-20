@@ -98,7 +98,7 @@ def placeholder(color: str) -> str:
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
 
 
-def mock_context(mode: str) -> dict:
+def mock_context(mode: str, num_images: int = 0) -> dict:
     cols = ["#e76f51", "#2a9d8f", "#e9c46a", "#457b9d", "#8d5a97", "#6a994e", "#bc4749", "#277da1"]
     if mode == "table":
         rows = [{"tag": f"Row {i+1}", "a_label": f"Item A{i+1}", "a_img": placeholder(cols[i % 8]),
@@ -243,6 +243,7 @@ with tab_topic:
     )
 
     # ── CUSTOM MODE UI ─────────────────────────────────────────────────
+    # ── CUSTOM MODE UI ─────────────────────────────────────────────────
     custom_num_images = int(cfg.get("custom_num_images") or 0)
     custom_html_template = None
 
@@ -259,12 +260,10 @@ with tab_topic:
             "| `watermark` | str | Your watermark text |\n"
             "| `images` | list[str] | Image `data:` URIs (length = number below) |\n"
             "| `labels` | list[str] | One label per image (from AI) |\n\n"
-            "- Set **number of images to 0** for a text-only poster — no image search is performed.\n"
-            "- Images arrive as `data:` URIs; the renderer blocks all network access.\n"
-            "- Use `{{ value|clean_label }}` to tidy AI text.\n"
-            "- Rendered at **1080 × 1920**."
+            "- Set **number of images to 0** for a text-only poster — no image search is performed."
         )
 
+        # ADD THIS BACK:
         custom_num_images = st.number_input(
             "Number of images your template needs (0 = text-only)",
             min_value=0, max_value=20,
@@ -273,13 +272,8 @@ with tab_topic:
             key="custom_num_images_input",
         )
 
-        custom_html_template = st.text_area(
-            "Your HTML template (Jinja2)",
-            value=cfg.get("custom_html_template") or CUSTOM_STARTER,
-            height=460,
-            key="custom_html_template_input",
-        )
-
+        st.success(
+            "✅ Custom mode will automatically use the built-in Python Template. To change the design, edit `CUSTOM_STARTER` in `src/poster_composer.py`.")
     language = st.text_input(
         "Label language", value=cfg.get("language", "English"),
         help="e.g. English, Telugu, Hindi",
@@ -341,6 +335,7 @@ with tab_keys:
     facebook_token = st.text_input(f"Facebook Page access token  ({saved('facebook_token')})", type="password")
 
 # ── TAB 3: template ──
+# ── TAB 3: template ──
 with tab_template:
     st.caption("Story and Puzzle always use the built-in designs. Table mode can use your own HTML.")
     use_custom = st.checkbox("Use my own HTML template for Table mode", value=bool(cfg.get("html_template")))
@@ -350,25 +345,18 @@ with tab_template:
             "HTML template (Jinja). Variables: title, col_a_title, col_b_title, rows "
             "(tag, a_label, a_img, b_label, b_img), tips, watermark. No JavaScript runs.",
             value=cfg.get("html_template") or TABLE_TEMPLATE, height=380)
-    # ── existing "Use my own HTML template for Table" block stays ──
-    ...
 
-    pv_modes = ["table", "story", "puzzle"]
-    if custom_html_template or cfg.get("custom_html_template"):
-        pv_modes.append("custom")
-
+    # CHANGE THIS: Always include "custom" in the preview options
+    pv_modes = ["table", "story", "puzzle", "custom"]
     pv_mode = st.radio("Preview", pv_modes, horizontal=True)
 
     if st.button("Show preview"):
         try:
             if pv_mode == "custom":
-                tpl = custom_html_template or cfg.get("custom_html_template")
-                if not tpl:
-                    st.error("No custom template provided.")
-                    st.stop()
                 n = int(custom_num_images if custom_num_images is not None
                         else cfg.get("custom_num_images") or 0)
-                show_preview(render_html("custom", mock_context("custom", n), tpl))
+                # Use CUSTOM_STARTER directly
+                show_preview(render_html("custom", mock_context("custom", n), CUSTOM_STARTER))
             else:
                 custom = html_template if (pv_mode == "table" and use_custom) else None
                 show_preview(render_html(pv_mode, mock_context(pv_mode), custom))
@@ -436,11 +424,7 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
             "live_privacy": live_privacy,
             "live_layout": live_layout,
             "custom_num_images": int(custom_num_images or 0),
-            "custom_html_template": (
-                custom_html_template.strip()
-                if content_mode == "custom" and custom_html_template
-                else None
-            ),
+            "custom_html_template": None,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
