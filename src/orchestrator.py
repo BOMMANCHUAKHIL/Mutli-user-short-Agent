@@ -76,39 +76,62 @@ def download_branding_image(url: str | None, name: str) -> str | None:
             f"Could not download {name} branding image: {exc}"
         ) from exc
 class ShortsOrchestrator:
-    def __init__(self, groq_key: str, pixabay_keys: str, topic: str, subtopic: str = "",
-                 language: str = "English", mode: str = "table", system_prompt: str | None = None,
-                 html_template: str | None = None, custom_python: str | None = None, pexels_key: str | None = None,
-                 youtube_token: str | None = None, facebook_page_id: str | None = None,
-                 facebook_token: str | None = None, watermark: str = "", config: dict | None = None):
+    def __init__(
+            self,
+            groq_key: str,
+            pixabay_keys: str,
+            topic: str,
+            subtopic: str = "",
+            language: str = "English",
+            mode: str = "table",
+            system_prompt: str | None = None,
+            html_template: str | None = None,
+            custom_python: str | None = None,
+            pexels_key: str | None = None,
+            youtube_token: str | None = None,
+            facebook_page_id: str | None = None,
+            facebook_token: str | None = None,
+            watermark: str = "",
+            config: dict | None = None,
+
+            # ── NEW BRANDING PARAMS ──
+            enable_youtube: bool = True,
+            enable_facebook: bool = True,
+            youtube_profile_pic: str | None = None,
+            facebook_profile_pic: str | None = None,
+            youtube_watermark: str | None = None,
+            facebook_watermark: str | None = None,
+            subscribe_gif: str | None = None,
+            custom_num_images: int = 0,
+    ):
         self.cfg = config or load_config()
         self.topic, self.sub = topic, subtopic
         self.language = language or "English"
-        # Change this line to include "custom":
         self.mode = mode if mode in ("table", "story", "puzzle", "mixed", "custom") else "table"
+
         self.html_template = html_template
         self.custom_python = custom_python
         self.watermark = watermark or ""
-        self.yt_token = youtube_token if enable_youtube else None  # <-- NEW
-        self.fb_page = facebook_page_id if enable_facebook else None  # <-- NEW
-        self.fb_token = facebook_token if enable_facebook else None  # <-- NEW
-        self._actual_fb_page = facebook_page_id
-        self._actual_fb_token = facebook_token
+        self.custom_num_images = custom_num_images
 
-        self.fb_page, self.fb_token = facebook_page_id, facebook_token
+        # Upload Targets
+        self.yt_token = youtube_token if enable_youtube else None
+        self.fb_page = facebook_page_id if enable_facebook else None
+        self.fb_token = facebook_token if enable_facebook else None
+
+        # Branding
         self.youtube_profile_pic = youtube_profile_pic
         self.facebook_profile_pic = facebook_profile_pic
-
         self.youtube_watermark = youtube_watermark
         self.facebook_watermark = facebook_watermark
-
-        self.subscribe_gif =  subscribe_gif or str(ROOT / "assets" / "branding" / "subscribe.gif")
+        self.subscribe_gif = subscribe_gif or str(ROOT / "assets" / "branding" / "subscribe.gif")
 
         self.pool = GroqPool(groq_key)
         self.gen = ContentGenerator(self.pool, self.language, system_prompt)
-        self.gen = ContentGenerator(self.pool, self.language, system_prompt)
-        self.fetcher = ImageFetcher(self.pool, pixabay_keys, pexels_key, OUT / "food_cache",
-                                    self.cfg.get("allow_ai_fallback", True))
+        self.fetcher = ImageFetcher(
+            self.pool, pixabay_keys, pexels_key, OUT / "food_cache",
+            self.cfg.get("allow_ai_fallback", True)
+        )
         self.sources: list[str] = []
 
     # ── per-mode builders: return (list of html strings, content) ──────
