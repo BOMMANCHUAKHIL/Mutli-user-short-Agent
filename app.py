@@ -19,7 +19,8 @@ st.set_page_config(page_title="Shorts Agent", page_icon="🎬", layout="wide")
 
 # --- HANDLE OAUTH REDIRECT ---
 handle_auth_callback()
-# ── 1. LOGIN GATE ── nothing below runs until a user is logged in
+
+# ── 1. LOGIN GATE ──
 user = require_login()
 sb = get_client()
 
@@ -42,6 +43,22 @@ is_active = bool(cfg.get("is_active", False))
 groq_key = pixabay_keys = pexels_key = youtube_token = facebook_token = ""
 custom_num_images = int(cfg.get("custom_num_images") or 0)
 
+# Initialize branding & schedule variables
+youtube_profile_pic_url = cfg.get("youtube_profile_pic_url")
+facebook_profile_pic_url = cfg.get("facebook_profile_pic_url")
+youtube_watermark = cfg.get("youtube_watermark") or ""
+facebook_watermark = cfg.get("facebook_watermark") or ""
+user_timezone = cfg.get("timezone", "Asia/Kolkata")
+posting_times = cfg.get("posting_times", "06:00,12:00,19:00,21:00")
+live_enabled = bool(cfg.get("live_enabled", False))
+live_times = cfg.get("live_times") or "20:00"
+live_duration_min = int(cfg.get("live_duration_min") or 120)
+live_title = cfg.get("live_title") or ""
+live_privacy = cfg.get("live_privacy") or "public"
+live_layout = cfg.get("live_layout") or "landscape"
+
+
+# -----------------------------------------------------
 
 def upload_branding_image(uploaded_file, platform: str) -> str | None:
     if uploaded_file is None:
@@ -80,6 +97,18 @@ def saved(field: str) -> str:
     return "✅ saved" if cfg.get(field) else "❌ not set"
 
 
+def valid_times(text: str) -> bool:
+    parts = [t.strip() for t in (text or "").split(",") if t.strip()]
+    if not parts: return False
+    for t in parts:
+        try:
+            h, m = map(int, t.split(":"))
+        except ValueError:
+            return False
+        if not (0 <= h <= 23 and 0 <= m <= 59): return False
+    return True
+
+
 def placeholder(color: str) -> str:
     svg = f"<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><rect width='400' height='400' fill='{color}'/></svg>"
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
@@ -101,7 +130,6 @@ def mock_context(mode: str, num_images: int = 0) -> dict:
                 "options": [{"label": f"Option {c}", "img": placeholder(cols[i])} for i, c in enumerate("ABCD")],
                 "answer_index": 2, "explanation": "Because it is different.", "reveal": False,
                 "hint": "⏳ A · B · C · D ?", "watermark": "@yourchannel"}
-
     # custom
     images = [placeholder(cols[i % len(cols)]) for i in range(num_images)]
     labels = [f"Label {i + 1}" for i in range(num_images)]
@@ -128,7 +156,7 @@ with st.sidebar:
         sign_out()
         st.rerun()
     st.divider()
-    st.caption("Saved keys are encrypted and never shown again.")
+    st.caption("Saved keys are encrypted and never shown again. Leave a key box empty to keep the saved one.")
 
 st.title("🎬 Your Shorts Dashboard")
 tab_topic, tab_keys, tab_template, tab_publish, tab_live = st.tabs(
@@ -155,6 +183,21 @@ with tab_topic:
     with col_fb:
         enable_facebook = st.toggle("Upload to Facebook", value=cfg.get("enable_facebook", True))
 
+    st.subheader("YouTube Branding")
+    youtube_profile_pic = st.file_uploader("YouTube profile picture", type=["png", "jpg", "jpeg", "webp"], key="yt_pic")
+    if youtube_profile_pic_url:
+        st.image(youtube_profile_pic_url, width=120)
+    youtube_watermark = st.text_input("YouTube watermark / Channel handle", value=youtube_watermark,
+                                      placeholder="@KathaZap")
+
+    st.subheader("Facebook Branding")
+    facebook_profile_pic = st.file_uploader("Facebook Page profile picture", type=["png", "jpg", "jpeg", "webp"],
+                                            key="fb_pic")
+    if facebook_profile_pic_url:
+        st.image(facebook_profile_pic_url, width=120)
+    facebook_watermark = st.text_input("Facebook watermark / Page name", value=facebook_watermark,
+                                       placeholder="KathaZap")
+
 # ── TAB 2: keys ──
 with tab_keys:
     st.subheader("Content & images")
@@ -169,101 +212,173 @@ with tab_keys:
 
 # ── TAB 3: template ──
 with tab_template:
-    st.subheader("🎨 Template Settings")
+    use_custom = False
+    html_template = None
+    custom_num_images = 0
 
-    # 1. SHOW HTML ONLY FOR RELEVANT MODES
+    # Conditional UI based on content_mode
     if content_mode == "table":
-        st.info("💡 Table mode allows custom HTML.")
+        st.subheader("🎨 Custom HTML — Table mode only")
         use_custom = st.checkbox("Use my own HTML template for Table mode", value=bool(html_template))
         if use_custom:
             html_template = st.text_area(
                 "HTML template (Jinja). Variables: title, col_a_title, rows, tips, watermark.",
                 value=html_template or TABLE_TEMPLATE, height=380)
-        else:
-            html_template = None
 
     elif content_mode == "custom":
-        st.info("💡 Custom mode requires your own HTML template.")
+        st.subheader("🧩 Custom template")
+        st.markdown("Variables received: `title`, `text`, `caption`, `hashtags`, `watermark`, `images`, `labels`.")
         custom_num_images = st.number_input("Number of images your template needs (0 = text-only)", min_value=0,
                                             max_value=20, value=custom_num_images)
         html_template = st.text_area(
-            "HTML template (Jinja). Variables: title, text, caption, hashtags, watermark, images, labels.",
+            "HTML template (Jinja)",
             value=html_template or CUSTOM_STARTER, height=380)
 
     else:
-        st.info(f"ℹ️ {content_mode.capitalize()} mode uses the built-in design. No HTML needed.")
-        html_template = None
-        custom_num_images = 0
+        st.info(f"ℹ️ {content_mode.capitalize()} mode uses the built-in design. No custom HTML needed here.")
 
     st.divider()
 
-    # 2. SHOW PYTHON FOR ALL MODES
+    # ── Python (all modes) ────────────────────────────────────────
     st.subheader("🐍 Custom Python — all modes")
     use_python = st.checkbox("Use my own Python code", value=bool(custom_python))
     if use_python:
         custom_python = st.text_area(
             "Python — must define `process(context) -> dict`",
             value=custom_python or DEFAULT_CUSTOM_PYTHON, height=300)
-    else:
-        custom_python = None
 
     st.divider()
 
-    # 3. SHOW PREVIEW
-    st.subheader("👁️ Preview")
-    # Only show preview buttons for modes that actually use this tab
-    if content_mode in ["table", "custom"]:
-        if st.button("Show preview"):
-            try:
-                custom_html = html_template if html_template else None
-                show_preview(render_html(
-                    content_mode, mock_context(content_mode, custom_num_images),
-                    custom_template=custom_html,
-                    custom_python=custom_python,
-                ))
-            except Exception as e:
-                st.error(f"Template error: {e}")
-    else:
-        st.caption("Switch to Table or Custom mode to preview templates here.")
+    # ── Preview ──────────────────────────────────────────────────
+    st.subheader("👁️ Preview Poster")
+    # Only show preview options relevant to current mode, or all.
+    pv_mode = st.radio("Preview Mode", ["table", "story", "puzzle", "custom"], horizontal=True,
+                       index=["table", "story", "puzzle", "custom"].index(content_mode) if content_mode in ["table",
+                                                                                                            "story",
+                                                                                                            "puzzle",
+                                                                                                            "custom"] else 0)
+
+    if st.button("Show preview"):
+        try:
+            # If the preview mode matches current custom settings, apply them
+            is_active_preview = (pv_mode == content_mode)
+            custom_html = html_template if (
+                        is_active_preview and pv_mode in ["table", "custom"] and html_template) else None
+            python_code = custom_python if is_active_preview else None
+
+            show_preview(render_html(
+                pv_mode, mock_context(pv_mode, custom_num_images),
+                custom_template=custom_html,
+                custom_python=python_code,
+            ))
+        except Exception as e:
+            st.error(f"Template error: {e}")
 
 # ── TAB 4: publish ──
 with tab_publish:
     is_active = st.toggle("Run my automation", value=is_active)
-    st.caption("Each run picks one random sub-topic and makes one video.")
+    st.subheader("⏰ Upload Schedule")
+
+    tz_options = ["Asia/Kolkata", "UTC", "America/New_York", "Europe/London", "Asia/Dubai"]
+    user_timezone = st.selectbox("Your Timezone", tz_options,
+                                 index=tz_options.index(user_timezone) if user_timezone in tz_options else 0)
+
+    posting_times = st.text_input("Upload Times (comma separated, 24-hour format)", value=posting_times,
+                                  placeholder="06:00, 12:00, 19:00, 21:00")
+    st.caption("The system runs hourly and will upload if the current hour matches one of these times.")
+
     if cfg.get("last_run_at"):
         st.info(f"Last run: {cfg['last_run_at']}\n\n{cfg.get('last_status') or ''}")
+    else:
+        st.caption("No run yet.")
 
 # ── TAB 5: live stream ──
 with tab_live:
-    st.caption("Live stream settings here...")
+    st.subheader("📡 Scheduled YouTube Live")
+    st.caption("Loops your latest 3 generated videos as a live stream on your channel.")
+
+    live_enabled = st.toggle("Enable scheduled live stream", value=live_enabled)
+    live_times = st.text_input("Go-live time(s) — 24-hour format, comma separated", value=live_times,
+                               placeholder="20:00, 09:30")
+    st.caption("A checker runs every 15 minutes, so the stream starts 0–30 minutes after the time you set.")
+
+    if live_enabled and not valid_times(live_times):
+        st.error("Use HH:MM, for example 20:00 or 09:30, 21:00")
+
+    live_duration_min = st.slider("Stream length (minutes)", 30, 180, live_duration_min, step=15)
+    live_title = st.text_input("Live title (optional)", value=live_title,
+                               placeholder="{topic} • Live Shorts Loop • {date}")
+
+    lc1, lc2 = st.columns(2)
+    privacy_opts = ["public", "unlisted", "private"]
+    layout_opts = ["landscape", "vertical"]
+    with lc1:
+        live_privacy = st.selectbox("Privacy (use unlisted to test)", privacy_opts,
+                                    index=privacy_opts.index(live_privacy) if live_privacy in privacy_opts else 0)
+    with lc2:
+        live_layout = st.selectbox("Layout", layout_opts,
+                                   index=layout_opts.index(live_layout) if live_layout in layout_opts else 0,
+                                   format_func=lambda k: "16:9 landscape" if k == "landscape" else "9:16 vertical")
+
+    if cfg.get("live_status"):
+        st.info(f"Live status: {cfg['live_status']}")
+    if cfg.get("live_url"):
+        st.markdown(f"Last live: {cfg['live_url']}")
 
 # ── SAVE ──
 st.divider()
 if st.button("💾 Save settings", type="primary", use_container_width=True):
-    row = {
-        "user_id": user["id"], "email": user["email"],
-        "main_topic": main_topic.strip(), "sub_topics": sub_topics.strip(),
-        "content_mode": content_mode, "language": language.strip() or "English",
-        "watermark": watermark.strip() or None,
-        "system_prompt": system_prompt,
-        "html_template": html_template,
-        "custom_python": custom_python,
-        "facebook_page_id": facebook_page_id.strip() or None,
-        "is_active": is_active,
-        "enable_youtube": enable_youtube,
-        "enable_facebook": enable_facebook,
-        "custom_num_images": int(custom_num_images or 0),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    for field, value in [("groq_key", groq_key), ("pixabay_keys", pixabay_keys), ("pexels_key", pexels_key),
-                         ("youtube_token", youtube_token), ("facebook_token", facebook_token)]:
-        if value.strip():
-            row[field] = encrypt_key(value.strip())
-
     try:
+        if live_enabled and not valid_times(live_times):
+            raise ValueError("Live go-live time must look like 20:00 (or 09:30, 21:00).")
+
+        # Upload new images if provided
+        if youtube_profile_pic is not None:
+            youtube_profile_pic_url = upload_branding_image(youtube_profile_pic, "youtube")
+        if facebook_profile_pic is not None:
+            facebook_profile_pic_url = upload_branding_image(facebook_profile_pic, "facebook")
+
+        row = {
+            "user_id": user["id"], "email": user["email"],
+            "main_topic": main_topic.strip(), "sub_topics": sub_topics.strip(),
+            "content_mode": content_mode, "language": language.strip() or "English",
+            "system_prompt": system_prompt,
+            "html_template": html_template if content_mode in ["table", "custom"] else None,
+            "custom_python": custom_python,
+            "facebook_page_id": facebook_page_id.strip() or None,
+            "is_active": is_active,
+            "enable_youtube": enable_youtube,
+            "enable_facebook": enable_facebook,
+            "custom_num_images": int(custom_num_images or 0),
+
+            # Schedule
+            "timezone": user_timezone,
+            "posting_times": posting_times,
+
+            # Branding
+            "youtube_profile_pic_url": youtube_profile_pic_url,
+            "youtube_watermark": youtube_watermark.strip() or None,
+            "facebook_profile_pic_url": facebook_profile_pic_url,
+            "facebook_watermark": facebook_watermark.strip() or None,
+
+            # Live
+            "live_enabled": live_enabled,
+            "live_times": live_times.strip() or "20:00",
+            "live_duration_min": int(live_duration_min),
+            "live_title": live_title.strip() or None,
+            "live_privacy": live_privacy,
+            "live_layout": live_layout,
+
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        for field, value in [("groq_key", groq_key), ("pixabay_keys", pixabay_keys), ("pexels_key", pexels_key),
+                             ("youtube_token", youtube_token), ("facebook_token", facebook_token)]:
+            if value.strip():
+                row[field] = encrypt_key(value.strip())
+
         sb.table("user_configs").upsert(row, on_conflict="user_id").execute()
-        st.success("Saved successfully!")
+        st.success("Settings and branding images saved successfully!")
         st.rerun()
     except Exception as e:
-        st.error(f"Could not save: {e}")
+        st.error(f"Could not save settings: {e}")
