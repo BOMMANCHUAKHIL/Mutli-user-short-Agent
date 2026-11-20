@@ -417,7 +417,7 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
 
             # YouTube branding
             "youtube_profile_pic_url": youtube_profile_pic_url,
-            "youtube_watermark": youtube_watermark.strip() or None,
+            "watermark": youtube_watermark.strip() or None,
 
             # Facebook branding
             "facebook_profile_pic_url": facebook_profile_pic_url,
