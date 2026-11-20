@@ -115,21 +115,13 @@ p{font-size:38px;line-height:1.5;text-align:center;margin-top:24px}
 
 BUILTIN = {"table": TABLE_TEMPLATE, "story": STORY_TEMPLATE, "puzzle": PUZZLE_TEMPLATE}
 
-
 def render_html(mode: str, context: dict, custom_template: str | None = None) -> str:
     """Render a poster. Table and Custom modes can use a user-supplied template."""
     if mode == "custom":
-        if not custom_template or not custom_template.strip():
-            raise ValueError("Custom mode requires an HTML template.")
-        src = custom_template
+        # ALWAYS use CUSTOM_STARTER for custom mode
+        src = CUSTOM_STARTER
     elif mode == "table" and custom_template and custom_template.strip():
         src = custom_template
     else:
         src = BUILTIN[mode]
-    return _env.from_string(src).render(**context)
-
-def render_html(mode: str, context: dict, custom_template: str | None = None) -> str:
-    """Render a poster. A custom template (from the dashboard) is used for table mode only."""
-    src = custom_template.strip() if (mode == "table" and custom_template and custom_template.strip()) \
-        else BUILTIN[mode]
     return _env.from_string(src).render(**context)
