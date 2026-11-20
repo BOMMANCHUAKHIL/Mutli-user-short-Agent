@@ -2,38 +2,65 @@ name: Shorts cycle
 
 on:
   schedule:
-    - cron: "0 */4 * * *"      # every 4 hours (see README: YouTube upload quota)
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch: {}
 
 concurrency:
   group: shorts-cycle
   cancel-in-progress: false
+  queue: max
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30          # was 90; with step timeouts this is plenty
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore music rotation state
+        uses: actions/cache@v4
+        with:
+          path: output/state.json
+          key: music-state
+          restore-keys: |
+            music-state
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
-      - name: System packages (ffmpeg + fonts for Indic scripts and emoji)
+      - name: System packages (ffmpeg + fonts + chromium runtime libs)
+        timeout-minutes: 8
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            fonts-noto-core fonts-noto-color-emoji fonts-dejavu-core \
+            libnss3 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
 
       - name: Python packages
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+        timeout-minutes: 20
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright Chromium binary
+        timeout-minutes: 5
+        run: python -m playwright install chromium
 
       - name: Run all active users
+        timeout-minutes: 15
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           MASTER_ENCRYPTION_KEY: ${{ secrets.MASTER_ENCRYPTION_KEY }}
         run: python main.py
+      - name: Diagnose scheduled trigger
+        run: |
+          echo "Event: $GITHUB_EVENT_NAME"
+          echo "UTC time: $(date -u)"
+          echo "India time: $(TZ=Asia/Kolkata date)"
+          echo "Branch: $GITHUB_REF"
+          echo "Commit: $GITHUB_SHA"

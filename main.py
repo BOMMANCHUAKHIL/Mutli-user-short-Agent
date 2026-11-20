@@ -1,21 +1,97 @@
 """Multi-user worker run by GitHub Actions: one random sub-topic and one video per active user."""
 import os
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from supabase import create_client
 
 load_dotenv()
 
-from src.crypto_utils import decrypt_key  # noqa: E402
-from src.orchestrator import ShortsOrchestrator  # noqa: E402
+from src.crypto_utils import decrypt_key, encrypt_key
+from src.orchestrator import ShortsOrchestrator
+from src.video_store import save_video
 
 
 def pick_prompt(sub_topics: str) -> str:
     """Pick ONE random sub-topic from a comma-separated list of any length."""
     subs = [s.strip() for s in (sub_topics or "").replace("\n", ",").split(",") if s.strip()]
     return random.choice(subs) if subs else ""
+
+
+def should_run_now(user: dict) -> bool:
+    """Check whether a user's scheduled posting time is due."""
+
+    email = user.get("email", "Unknown")
+    tz_str = (user.get("timezone") or "Asia/Kolkata").strip()
+
+    try:
+        user_tz = ZoneInfo(tz_str)
+    except Exception as e:
+        print(f"[{email}] Invalid timezone {tz_str}: {e}")
+        return False
+
+    now_local = datetime.now(user_tz)
+
+    times_str = user.get("posting_times") or "06:00,12:00,20:00,21:00"
+
+    last_run = user.get("last_run_at")
+
+    last_run_local = None
+
+    if last_run:
+        try:
+            last_run_dt = datetime.fromisoformat(
+                str(last_run).replace("Z", "+00:00")
+            )
+
+            if last_run_dt.tzinfo is None:
+                last_run_dt = last_run_dt.replace(tzinfo=timezone.utc)
+
+            last_run_local = last_run_dt.astimezone(user_tz)
+
+        except Exception as e:
+            print(f"[{email}] Could not parse last_run_at: {e}")
+
+    for t in times_str.split(","):
+        t = t.strip()
+
+        try:
+            hour, minute = map(int, t.split(":"))
+
+            scheduled = now_local.replace(
+                hour=hour,
+                minute=minute,
+                second=0,
+                microsecond=0
+            )
+
+            # Allow execution up to 65 minutes after scheduled time.
+            if not (scheduled <= now_local < scheduled + timedelta(minutes=65)):
+                continue
+
+            # Prevent multiple uploads for the same scheduled slot.
+            if last_run_local and scheduled <= last_run_local < scheduled + timedelta(minutes=65):
+                print(f"[{email}] Already processed {t}. Skipping.")
+                continue
+
+            print(
+                f"[{email}] Local time: {now_local.strftime('%Y-%m-%d %H:%M')} "
+                f"| Scheduled: {t} | RUN"
+            )
+
+            return True
+
+        except (ValueError, TypeError):
+            print(f"[{email}] Invalid posting time: {t}")
+
+    print(
+        f"[{email}] Local time: {now_local.strftime('%Y-%m-%d %H:%M')} "
+        f"| Schedule: {times_str} | SKIP"
+    )
+
+    return False
 
 
 def run_multi_user_cycle():
@@ -29,17 +105,30 @@ def run_multi_user_cycle():
     users = sb.table("user_configs").select("*").eq("is_active", True).execute().data
     print(f"Found {len(users)} active user(s).")
 
-    def status(user, text):
+    def status(user, text, successful=False):
         try:
-            sb.table("user_configs").update({
+            updates = {
                 "last_status": text[:300],
-                "last_run_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("user_id", user["user_id"]).execute()
+            }
+
+            if successful:
+                updates["last_run_at"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
+
+            sb.table("user_configs").update(updates).eq(
+                "user_id", user["user_id"]
+            ).execute()
+
         except Exception as e:
             print("  (could not save status:", str(e)[:100], ")")
 
     for user in users:
         print(f"\n--- {user['email']} ---")
+
+        if not should_run_now(user):
+            continue
+
         groq = decrypt_key(user.get("groq_key"))
         pixabay = decrypt_key(user.get("pixabay_keys")) or ""
         pexels = decrypt_key(user.get("pexels_key"))
@@ -47,6 +136,17 @@ def run_multi_user_cycle():
         fb_token = decrypt_key(user.get("facebook_token"))
         fb_page = user.get("facebook_page_id")
         topic = (user.get("main_topic") or "").strip()
+
+        # --- CHECK YOUTUBE RESTRICTION ---
+        restricted_until = user.get("youtube_restricted_until")
+        if restricted_until:
+            try:
+                r_time = datetime.fromisoformat(str(restricted_until).replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) < r_time:
+                    print(f"YouTube restricted until {r_time}. Skipping YouTube upload.")
+                    yt = None # Disable YouTube for this run
+            except Exception as e:
+                print("Error parsing restriction time:", e)
 
         if not groq or not topic:
             status(user, "Skipped: Groq key and main topic are required.")
@@ -57,6 +157,7 @@ def run_multi_user_cycle():
 
         sub = pick_prompt(user.get("sub_topics"))
         print(f"Topic: {topic} | sub-topic: {sub or '(none)'} | mode: {user.get('content_mode')}")
+
         try:
             orch = ShortsOrchestrator(
                 groq_key=groq, pixabay_keys=pixabay, pexels_key=pexels,
@@ -68,16 +169,67 @@ def run_multi_user_cycle():
                 custom_python=user.get("custom_python"),
                 youtube_token=yt, facebook_page_id=fb_page, facebook_token=fb_token,
                 watermark=user.get("watermark") or "",
+                youtube_profile_pic=user.get("youtube_profile_pic_url"),
+                facebook_profile_pic=user.get("facebook_profile_pic_url"),
+                youtube_watermark=user.get("youtube_watermark") or "",
+                facebook_watermark=user.get("facebook_watermark") or "",
+                enable_youtube=user.get("enable_youtube", True),
+                enable_facebook=user.get("enable_facebook", True),
             )
+
             r = orch.run_cycle()
+            # Save refreshed YouTube OAuth credentials for this user.
+            updated_youtube_token = r.get("youtube_token_json")
+
+            if updated_youtube_token:
+                encrypted_token = encrypt_key(updated_youtube_token)
+
+                sb.table("user_configs").update({
+                    "youtube_token": encrypted_token,
+                }).eq(
+                    "user_id", user["user_id"]
+                ).execute()
+
+                print("YouTube credentials refreshed/saved for this user.")
+
+            # Keep the newest videos so the live-stream worker can loop them later.
+            if user.get("live_enabled"):
+                kept = (r.get("youtube_video") if r.get("youtube_url")
+                        else r.get("facebook_video") if r.get("facebook_video_id") else None)
+                if kept:
+                    try:
+                        save_video(sb, user["user_id"], kept)
+                    except Exception as e:
+                        print("  (could not store video for live:", str(e)[:150], ")")
+
+            # --- IF RESTRICTED, SAVE 1 DAY COOLDOWN ---
+            if r.get("youtube_restricted"):
+                restricted_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+                sb.table("user_configs").update({"youtube_restricted_until": restricted_time}).eq("user_id", user["user_id"]).execute()
+                print("YouTube restricted. Pausing YouTube uploads for 1 day.")
+
             msg = f"OK {r['mode']}: {r['youtube_url'] or ''} {r['facebook_video_id'] or ''}".strip()
             if r["errors"]:
                 msg += " | partial: " + "; ".join(r["errors"])
             print("✓", msg)
-            status(user, msg)
+            status(user, msg, successful=True)
+
+
+
+
         except Exception as e:
-            print("✗ failed:", str(e)[:300])
-            status(user, f"Failed: {str(e)[:250]}")
+
+            import traceback
+
+            error_message = f"Failed: {str(e)[:250]}"
+
+            # Save the failure status for this user in Supabase.
+
+            status(user, error_message)
+
+            print(f"✗ Failed for {user['email']}: {repr(e)}")
+
+            traceback.print_exc()
 
 
 if __name__ == "__main__":

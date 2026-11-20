@@ -3,17 +3,18 @@ import json
 import random
 import time
 from pathlib import Path
-
+import hashlib
+import requests
 from .facebook_uploader import upload_reel
 from .food_fetcher import ImageFetcher, to_data_uri
 from .groq_pool import GroqPool
 from .html_renderer import render_many
-from .poster_composer import render_html
+from .poster_composer import render_html,CUSTOM_STARTER
 from .reviewer_agent import find_mismatches
 from .telugu_generator import ContentGenerator, TABLE_ROWS_NEEDED
-from .video_composer import compose_video
-from .youtube_uploader import upload_short
+from .video_composer import compose_video, _next_music
 
+from .youtube_uploader import upload_short, YouTubeRestrictedError
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "output"
 
@@ -27,7 +28,53 @@ def load_config() -> dict:
         pass
     return defaults
 
+def download_branding_image(url: str | None, name: str) -> str | None:
+    if not url:
+        return None
 
+    # Already a local image path
+    local_path = Path(url)
+
+    if local_path.is_file():
+        return str(local_path)
+
+    if not url.startswith(("https://", "http://")):
+        return None
+
+    branding_dir = OUT / "branding"
+    branding_dir.mkdir(parents=True, exist_ok=True)
+
+    file_hash = hashlib.sha256(
+        url.encode("utf-8")
+    ).hexdigest()[:12]
+
+    extension = ".png"
+
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+
+        content_type = response.headers.get(
+            "Content-Type", ""
+        ).lower()
+
+        if "jpeg" in content_type or "jpg" in content_type:
+            extension = ".jpg"
+        elif "webp" in content_type:
+            extension = ".webp"
+
+        output_path = (
+            branding_dir / f"{name}_{file_hash}{extension}"
+        )
+
+        output_path.write_bytes(response.content)
+
+        return str(output_path)
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not download {name} branding image: {exc}"
+        ) from exc
 class ShortsOrchestrator:
     def __init__(self, groq_key: str, pixabay_keys: str, topic: str, subtopic: str = "",
                  language: str = "English", mode: str = "table", system_prompt: str | None = None,
@@ -37,14 +84,28 @@ class ShortsOrchestrator:
         self.cfg = config or load_config()
         self.topic, self.sub = topic, subtopic
         self.language = language or "English"
-        self.mode = mode if mode in ("table", "story", "puzzle", "mixed") else "table"
+        # Change this line to include "custom":
+        self.mode = mode if mode in ("table", "story", "puzzle", "mixed", "custom") else "table"
         self.html_template = html_template
         self.custom_python = custom_python
         self.watermark = watermark or ""
-        self.yt_token = youtube_token
+        self.yt_token = youtube_token if enable_youtube else None  # <-- NEW
+        self.fb_page = facebook_page_id if enable_facebook else None  # <-- NEW
+        self.fb_token = facebook_token if enable_facebook else None  # <-- NEW
+        self._actual_fb_page = facebook_page_id
+        self._actual_fb_token = facebook_token
+
         self.fb_page, self.fb_token = facebook_page_id, facebook_token
+        self.youtube_profile_pic = youtube_profile_pic
+        self.facebook_profile_pic = facebook_profile_pic
+
+        self.youtube_watermark = youtube_watermark
+        self.facebook_watermark = facebook_watermark
+
+        self.subscribe_gif =  subscribe_gif or str(ROOT / "assets" / "branding" / "subscribe.gif")
 
         self.pool = GroqPool(groq_key)
+        self.gen = ContentGenerator(self.pool, self.language, system_prompt)
         self.gen = ContentGenerator(self.pool, self.language, system_prompt)
         self.fetcher = ImageFetcher(self.pool, pixabay_keys, pexels_key, OUT / "food_cache",
                                     self.cfg.get("allow_ai_fallback", True))
@@ -58,21 +119,96 @@ class ShortsOrchestrator:
 
     def _build_table(self, c: dict):
         rows = c["rows"]
+
+        # Check factual/image-label mismatches first.
         items = [x for r in rows for x in (r["a"], r["b"])]
         bad = find_mismatches(self.pool, self.language, items)
-        ok = [r for i, r in enumerate(rows) if 2 * i not in bad and 2 * i + 1 not in bad]
-        pending = ok if len(ok) >= TABLE_ROWS_NEEDED else rows
+
+        valid_rows = [
+            (i, r)
+            for i, r in enumerate(rows)
+            if 2 * i not in bad and 2 * i + 1 not in bad
+        ]
+
         chosen = []
-        while len(chosen) < TABLE_ROWS_NEEDED and pending:
-            batch = pending[:TABLE_ROWS_NEEDED - len(chosen)]
-            pending = pending[len(batch):]
-            pairs = [(x["query"], x["alt"]) for r in batch for x in (r["a"], r["b"])]
-            res = self._fetch(pairs)
-            for k, r in enumerate(batch):
-                if res[2 * k] and res[2 * k + 1]:
-                    chosen.append({"tag": r["tag"],
-                                   "a_label": r["a"]["label"], "a_img": to_data_uri(res[2 * k]["bytes"]),
-                                   "b_label": r["b"]["label"], "b_img": to_data_uri(res[2 * k + 1]["bytes"])})
+
+        def fetch_verified(item):
+            """
+            Try the original image query and alternative queries.
+            Only accept images returned successfully by ImageFetcher.
+            """
+            query = item.get("query", "")
+            alt = item.get("alt", "")
+            label = item.get("label", "")
+
+            candidates = [
+                (query, alt),
+                (alt, query),
+                (label, alt),
+                (label, query),
+            ]
+
+            seen = set()
+
+            for search_query, alternative in candidates:
+                if not search_query:
+                    continue
+
+                pair = (search_query, alternative)
+
+                if pair in seen:
+                    continue
+
+                seen.add(pair)
+
+                try:
+                    result = self._fetch([pair])[0]
+                    if result:
+                        return result
+                except Exception as exc:
+                    print(
+                        f"Image search failed for {search_query}: {exc}"
+                    )
+
+            return None
+
+        print(
+            f"Table image verification: "
+            f"{len(valid_rows)} valid rows out of {len(rows)}"
+        )
+
+        for index, row in valid_rows:
+
+            if len(chosen) >= TABLE_ROWS_NEEDED:
+                break
+
+            print(
+                f"Processing table row {index + 1}: {row['tag']}"
+            )
+
+            # Fetch each image independently.
+            image_a = fetch_verified(row["a"])
+            image_b = fetch_verified(row["b"])
+
+            if not image_a or not image_b:
+                print(
+                    f"Skipping row {index + 1}: "
+                    "could not verify both images"
+                )
+                continue
+
+            chosen.append({
+                "tag": row["tag"],
+                "a_label": row["a"]["label"],
+                "a_img": to_data_uri(image_a["bytes"]),
+                "b_label": row["b"]["label"],
+                "b_img": to_data_uri(image_b["bytes"]),
+            })
+
+            print(
+                f"Verified row {len(chosen)}/{TABLE_ROWS_NEEDED}"
+            )
+
         if len(chosen) < TABLE_ROWS_NEEDED:
             raise RuntimeError(f"only {len(chosen)} rows have verified images")
         ctx = {"title": c["title"], "col_a_title": c["col_a_title"], "col_b_title": c["col_b_title"],
@@ -106,53 +242,222 @@ class ShortsOrchestrator:
             return [c["image"]]
         if c["mode"] == "puzzle":
             return c["options"]
+        if c["mode"] == "custom":
+            return c.get("images", [])
         return []
+
+    # ── new builder ────────────────────────────────────────────────────────
+    def _build_custom(self, c: dict):
+        # We no longer check self.custom_html_template.
+        # It will ALWAYS use the CUSTOM_STARTER from the Python file.
+        images = c.get("images") or []
+        if images:
+            res = self._fetch([(img["query"], img["alt"]) for img in images])
+            if not all(res):
+                missing = [images[i]["label"] for i, r in enumerate(res) if not r]
+                raise RuntimeError(
+                    "could not fetch images for: " + ", ".join(missing)
+                )
+            image_uris = [to_data_uri(r["bytes"]) for r in res]
+            labels = [img["label"] for img in images]
+        else:
+            image_uris, labels = [], []
+
+        ctx = {
+            "title": c["title"],
+            "text": c["text"],
+            "caption": c["caption"],
+            "hashtags": c["hashtags"],
+            "watermark": self.watermark,
+            "images": image_uris,
+            "labels": labels,
+        }
+        # Use CUSTOM_STARTER directly
+        return [render_html("custom", ctx, CUSTOM_STARTER)]
 
     # ── main entry ─────────────────────────────────────────────────────
     def run_cycle(self) -> dict:
-        mode = random.choice(["table", "story", "puzzle"]) if self.mode == "mixed" else self.mode
+        mode = (random.choice(["table", "story", "puzzle"])
+                if self.mode == "mixed" else self.mode)
+
         content = None
         for attempt in range(3):
-            content = self.gen.generate(mode, self.topic, self.sub)
+            content = self.gen.generate(
+                mode, self.topic, self.sub,
+                num_images=self.custom_num_images,
+            )
             items = self._label_items(content)
             if items and find_mismatches(self.pool, self.language, items):
-                content = None            # label/picture mismatch -> write new content
+                content = None
                 continue
             break
         if content is None:
             raise RuntimeError("content kept failing the label check")
 
-        builder = {"table": self._build_table, "story": self._build_story,
-                   "puzzle": self._build_puzzle}[mode]
+        builder = {
+            "table": self._build_table,
+            "story": self._build_story,
+            "puzzle": self._build_puzzle,
+            "custom": self._build_custom,
+        }[mode]
         htmls = builder(content)
 
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        posters = render_many([(h, OUT / "posters" / f"{stamp}_{i}.png") for i, h in enumerate(htmls)])
-        video = compose_video(posters, OUT / "videos" / f"{stamp}.mp4",
-                              duration=int(self.cfg["duration"]), fps=int(self.cfg["fps"]),
-                              countdown_first=(mode == "puzzle"),
-                              question_seconds=int(self.cfg["question_seconds"]))
+
+        posters = render_many([
+            (h, OUT / "posters" / f"{stamp}_{i}.png")
+            for i, h in enumerate(htmls)
+        ])
 
         tags = content["hashtags"] + ["#Shorts"]
-        description = f"{content['caption']}\n\n{' '.join(tags)}".strip()
-        result = {"mode": mode, "title": content["yt_title"], "video": str(video),
-                  "youtube_url": None, "facebook_video_id": None, "errors": []}
 
+        description = (
+            f"{content['caption']}\n\n{' '.join(tags)}"
+        ).strip()
+
+        result = {
+            "mode": mode,
+            "title": content["yt_title"],
+            "video": None,
+            "youtube_video": None,
+            "youtube_token_json": None,
+            "facebook_video": None,
+            "youtube_url": None,
+            "facebook_video_id": None,
+            "errors": [],
+        }
+
+        # Download platform-specific profile pictures
+        youtube_profile_path = download_branding_image(
+            self.youtube_profile_pic,
+            "youtube_profile"
+        )
+
+        facebook_profile_path = download_branding_image(
+            self.facebook_profile_pic,
+            "facebook_profile"
+        )
+
+        print("YouTube profile image:", youtube_profile_path)
+        print("Facebook profile image:", facebook_profile_path)
+
+        if self.youtube_profile_pic and not youtube_profile_path:
+            result["errors"].append("YouTube profile picture could not be loaded.")
+
+        if self.facebook_profile_pic and not facebook_profile_path:
+            result["errors"].append("Facebook profile picture could not be loaded.")
+
+        # Use the same music track for both platform videos
+        shared_music = _next_music()
+
+        # Common video settings
+        common_video_settings = {
+            "duration": int(self.cfg["duration"]),
+            "fps": int(self.cfg["fps"]),
+            "countdown_first": (mode == "puzzle"),
+            "question_seconds": int(self.cfg["question_seconds"]),
+            "music_path": shared_music,
+        }
+
+        # ------------------------------------
+        # YOUTUBE VIDEO
+        # ------------------------------------
         if self.yt_token:
             try:
-                result["youtube_url"] = upload_short(self.yt_token, str(video), content["yt_title"],
-                                                     description, tags, self.cfg["privacy"])
-            except Exception as e:
-                result["errors"].append(f"youtube: {str(e)[:200]}")
+                youtube_video = compose_video(
+                    posters,
+                    OUT / "videos" / f"{stamp}_youtube.mp4",
+                    profile_pic_path=youtube_profile_path,
+                    # THIS IS THE FIX: Use watermark instead of "YouTube"
+                    branding_title=self.youtube_watermark or "",
+                    subscribe_gif_path=self.subscribe_gif,
+                    watermark_text="",  # Empty to avoid duplicate at top right
+                    **common_video_settings,
+                )
+
+                result["youtube_video"] = str(youtube_video)
+                result["video"] = str(youtube_video)
+
+                youtube_url, updated_youtube_token = upload_short(
+                    self.yt_token,
+                    str(youtube_video),
+                    content["yt_title"],
+                    description,
+                    tags,
+                    self.cfg["privacy"],
+                    return_token=True,
+                )
+
+                result["youtube_url"] = youtube_url
+                result["youtube_token_json"] = updated_youtube_token
+
+
+            except YouTubeRestrictedError as exc:
+
+                result["errors"].append(f"youtube_restricted: {str(exc)}")
+
+                result["youtube_restricted"] = True  # <--- FLAG IT
+
+            except Exception as exc:
+
+                result["errors"].append(
+
+                    f"youtube: {str(exc)[:300]}"
+
+                )
+
+        # ------------------------------------
+        # FACEBOOK VIDEO
+        # ------------------------------------
         if self.fb_page and self.fb_token:
             try:
-                result["facebook_video_id"] = upload_reel(
-                    self.fb_page, self.fb_token, str(video), description,
-                    ai_generated="ai" in self.sources)
-            except Exception as e:
-                result["errors"].append(f"facebook: {str(e)[:200]}")
+                facebook_video = compose_video(
+                    posters,
+                    OUT / "videos" / f"{stamp}_facebook.mp4",
+                    profile_pic_path=facebook_profile_path,
+                    # THIS IS THE FIX: Use watermark instead of "Facebook"
+                    branding_title=self.facebook_watermark or "",
+                    subscribe_gif_path=None,
+                    watermark_text="",  # Empty to avoid duplicate at top right
+                    **common_video_settings,
+                )
 
-        uploads_wanted = bool(self.yt_token) + bool(self.fb_page and self.fb_token)
-        if uploads_wanted and not (result["youtube_url"] or result["facebook_video_id"]):
-            raise RuntimeError("all uploads failed: " + "; ".join(result["errors"]))
+                result["facebook_video"] = str(facebook_video)
+
+                result["facebook_video_id"] = upload_reel(
+                    self.fb_page,
+                    self.fb_token,
+                    str(facebook_video),
+                    description,
+                    ai_generated="ai" in self.sources,
+                )
+
+            except Exception as exc:
+                result["errors"].append(
+                    f"facebook: {str(exc)[:300]}"
+                )
+
+        # If neither platform is configured, generate a plain preview
+        if not self.yt_token and not (self.fb_page and self.fb_token):
+            preview_video = compose_video(
+                posters,
+                OUT / "videos" / f"{stamp}_preview.mp4",
+                **common_video_settings,
+            )
+
+            result["video"] = str(preview_video)
+
+        uploads_wanted = (
+                bool(self.yt_token)
+                or bool(self.fb_page and self.fb_token)
+        )
+
+        if uploads_wanted and not (
+                result["youtube_url"]
+                or result["facebook_video_id"]
+        ):
+            raise RuntimeError(
+                "All uploads failed: " + "; ".join(result["errors"])
+            )
+
         return result

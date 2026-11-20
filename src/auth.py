@@ -1,19 +1,26 @@
-"""Multi-user authentication on top of Supabase Auth.
 
-Important: the authenticated client lives in st.session_state (one per browser
-session). Never put it in st.cache_resource, or users would share a login.
-"""
 import streamlit as st
 from supabase import create_client, Client
-
+import time
 
 def _new_client() -> Client:
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_KEY"])
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_ANON_KEY"]
+    except KeyError:
+        st.error(
+            "Missing SUPABASE_URL or SUPABASE_ANON_KEY "
+            "in Streamlit Secrets."
+        )
+        st.stop()
+
+    return create_client(url, key)
 
 
 def get_client() -> Client:
     if "sb" not in st.session_state:
         st.session_state.sb = _new_client()
+
     return st.session_state.sb
 
 
@@ -21,19 +28,45 @@ def current_user():
     return st.session_state.get("user")
 
 
+def _store(res) -> None:
+    if not res.session or not res.user:
+        raise Exception("Authentication did not return a valid session.")
+
+    st.session_state.user = {
+        "id": res.user.id,
+        "email": res.user.email,
+    }
+
+    # Apply Supabase user's JWT to database requests.
+    get_client().postgrest.auth(res.session.access_token)
+
+
 def sign_up(email: str, password: str) -> str:
-    """Returns a message to show the user."""
     sb = get_client()
-    res = sb.auth.sign_up({"email": email, "password": password})
-    if res.session:                      # email confirmation disabled -> logged in at once
+
+    res = sb.auth.sign_up({
+        "email": email,
+        "password": password,
+    })
+
+    if res.session:
         _store(res)
         return "Account created. You are logged in."
-    return "Account created. Check your email and click the confirmation link, then log in."
+
+    return (
+        "Account created. Check your email and click "
+        "the confirmation link, then log in."
+    )
 
 
 def sign_in(email: str, password: str) -> None:
     sb = get_client()
-    res = sb.auth.sign_in_with_password({"email": email, "password": password})
+
+    res = sb.auth.sign_in_with_password({
+        "email": email,
+        "password": password,
+    })
+
     _store(res)
 
 
@@ -46,63 +79,162 @@ def sign_out() -> None:
         get_client().auth.sign_out()
     except Exception:
         pass
-    for k in ("sb", "user"):
-        st.session_state.pop(k, None)
+
+    for key in ("sb", "user"):
+        st.session_state.pop(key, None)
+
+    # Also clear Streamlit's Google login cookie.
+    if getattr(st.user, "is_logged_in", False):
+        st.logout()
 
 
-def _store(res) -> None:
-    st.session_state.user = {"id": res.user.id, "email": res.user.email}
-    # make the DB client send this user's JWT so Row Level Security applies
-    get_client().postgrest.auth(res.session.access_token)
+def handle_auth_callback():
+    # Streamlit handles the Google OIDC callback automatically.
+    pass
 
+import time
 
+claims = st.user.to_dict()
+
+st.write("Google OIDC diagnostics:")
+
+st.json({
+    "issuer": claims.get("iss"),
+    "audience": claims.get("aud"),
+    "authorized_party": claims.get("azp"),
+    "email_verified": claims.get("email_verified"),
+    "token_expired": claims.get("exp", 0) < time.time(),
+    "has_nonce": bool(claims.get("nonce")),
+    "has_at_hash": bool(claims.get("at_hash")),
+    "has_access_token": bool(st.user.tokens.get("access")),
+})
 def require_login() -> dict:
-    """Show the login/sign-up screen and stop the page until the user is logged in."""
     user = current_user()
+    # Check whether Google's ID token has expired.
+    if st.user.is_logged_in:
+        claims = st.user.to_dict()
+        exp = int(claims.get("exp", 0))
+
+        if exp <= int(time.time()):
+            # Clear the old Supabase session and Google login.
+            st.session_state.pop("sb", None)
+            st.session_state.pop("user", None)
+
+            st.logout()
+            st.stop()
+
+    # Exchange Google's ID token for a Supabase session.
+    if not user and st.user.is_logged_in:
+        try:
+            id_token = st.user.tokens["id"]
+            access_token = st.user.tokens["access"]
+
+            res = get_client().auth.sign_in_with_id_token({
+                "provider": "google",
+                "token": id_token,
+                "access_token": access_token,
+            })
+
+            _store(res)
+            user = current_user()
+
+        except Exception as e:
+            st.error(f"Google authentication failed: {e}")
+            st.stop()
+
     if user:
         return user
 
     st.title("🎬 Shorts Agent")
-    st.caption("Log in or create an account to set up your own automated Shorts channel.")
+    st.caption(
+        "Log in or create an account to set up "
+        "your own automated Shorts channel."
+    )
+
+    st.subheader("Sign in with Google")
+
+    if st.button(
+        "🔵 Sign in with Google",
+        use_container_width=True,
+    ):
+        st.login("google")
+
+    st.divider()
+    st.caption("Or use your email and password")
+
     tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
 
     with tab_login:
         with st.form("login_form"):
             email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            go = st.form_submit_button("Log in", use_container_width=True)
+            password = st.text_input(
+                "Password",
+                type="password",
+            )
+            go = st.form_submit_button(
+                "Log in",
+                use_container_width=True,
+            )
+
         if go:
             try:
                 sign_in(email.strip(), password)
                 st.rerun()
             except Exception as e:
                 st.error(f"Login failed: {e}")
+
         with st.expander("Forgot password?"):
-            fe = st.text_input("Your email", key="forgot_email")
+            fe = st.text_input(
+                "Your email",
+                key="forgot_email",
+            )
+
             if st.button("Send reset link"):
                 try:
                     reset_password(fe.strip())
-                    st.success("If that email exists, a reset link was sent.")
+                    st.success(
+                        "If that email exists, a reset link was sent."
+                    )
                 except Exception as e:
                     st.error(str(e))
 
     with tab_signup:
         with st.form("signup_form"):
-            email = st.text_input("Email", key="su_email")
-            password = st.text_input("Password (min 8 characters)", type="password", key="su_pw")
-            password2 = st.text_input("Confirm password", type="password", key="su_pw2")
-            go = st.form_submit_button("Create account", use_container_width=True)
+            email = st.text_input(
+                "Email",
+                key="su_email",
+            )
+            password = st.text_input(
+                "Password (min 8 characters)",
+                type="password",
+                key="su_pw",
+            )
+            password2 = st.text_input(
+                "Confirm password",
+                type="password",
+                key="su_pw2",
+            )
+
+            go = st.form_submit_button(
+                "Create account",
+                use_container_width=True,
+            )
+
         if go:
             if len(password) < 8:
                 st.error("Password must be at least 8 characters.")
+
             elif password != password2:
                 st.error("Passwords do not match.")
+
             else:
                 try:
                     msg = sign_up(email.strip(), password)
                     st.success(msg)
+
                     if current_user():
                         st.rerun()
+
                 except Exception as e:
                     st.error(f"Sign-up failed: {e}")
 
