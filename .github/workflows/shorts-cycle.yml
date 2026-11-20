@@ -43,7 +43,7 @@ jobs:
             libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
 
       - name: Python packages
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: pip install -r requirements.txt
 
       - name: Install Playwright Chromium binary
