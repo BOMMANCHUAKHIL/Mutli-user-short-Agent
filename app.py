@@ -25,6 +25,14 @@ DEFAULT_SYSTEM_PROMPT = (
     "You create accurate, engaging short-form video content. "
     "Every image query must describe exactly what the label says."
 )
+DEFAULT_CUSTOM_PYTHON = '''def process(context):
+    """Modify `context` before the poster is rendered. Return the dict."""
+    # Examples:
+    # context["title"] = context["title"].upper()
+    # if "story" in context:
+    #     context["story"] = context["story"] + "\\n\\nFollow for more!"
+    return context
+'''
 MODES = {
     "table": "Table (14 images + labels in one poster)",
     "story": "Story (1 picture + short story about it)",
@@ -128,19 +136,47 @@ with tab_keys:
 
 # ── TAB 3: template ──
 with tab_template:
+    # ── HTML (table mode only) ─────────────────────────────────────
+    st.subheader("🎨 Custom HTML — Table mode only")
     st.caption("Story and Puzzle always use the built-in designs. Table mode can use your own HTML.")
-    use_custom = st.checkbox("Use my own HTML template for Table mode", value=bool(cfg.get("html_template")))
+    use_custom = st.checkbox("Use my own HTML template for Table mode",
+                             value=bool(cfg.get("html_template")))
     html_template = None
     if use_custom:
         html_template = st.text_area(
             "HTML template (Jinja). Variables: title, col_a_title, col_b_title, rows "
             "(tag, a_label, a_img, b_label, b_img), tips, watermark. No JavaScript runs.",
             value=cfg.get("html_template") or TABLE_TEMPLATE, height=380)
+
+    st.divider()
+
+    # ── Python (all modes) ────────────────────────────────────────
+    st.subheader("🐍 Custom Python — all modes")
+    st.caption(
+        "Optional. Define `def process(context): ...` to transform the content "
+        "dict before rendering. Imports, dunder access and file/network access are blocked. "
+        "5‑second timeout on Unix."
+    )
+    use_python = st.checkbox("Use my own Python code",
+                             value=bool(cfg.get("custom_python")))
+    custom_python = None
+    if use_python:
+        custom_python = st.text_area(
+            "Python — must define `process(context) -> dict`",
+            value=cfg.get("custom_python") or DEFAULT_CUSTOM_PYTHON, height=300)
+
+    st.divider()
+
+    # ── Preview ──────────────────────────────────────────────────
     pv_mode = st.radio("Preview", ["table", "story", "puzzle"], horizontal=True)
     if st.button("Show preview"):
         try:
-            custom = html_template if (pv_mode == "table" and use_custom) else None
-            show_preview(render_html(pv_mode, mock_context(pv_mode), custom))
+            custom_html = html_template if (pv_mode == "table" and use_custom) else None
+            show_preview(render_html(
+                pv_mode, mock_context(pv_mode),
+                custom_template=custom_html,
+                custom_python=custom_python,
+            ))
         except Exception as e:
             st.error(f"Template error: {e}")
 
@@ -162,7 +198,7 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
         "main_topic": main_topic.strip(), "sub_topics": sub_topics.strip(),
         "content_mode": content_mode, "language": language.strip() or "English",
         "watermark": watermark.strip() or None,
-        "system_prompt": system_prompt, "html_template": html_template,
+        "system_prompt": system_prompt, "html_template": html_template,"custom_python": custom_python,
         "facebook_page_id": facebook_page_id.strip() or None,
         "is_active": is_active,
         "updated_at": datetime.now(timezone.utc).isoformat(),

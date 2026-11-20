@@ -31,7 +31,7 @@ def load_config() -> dict:
 class ShortsOrchestrator:
     def __init__(self, groq_key: str, pixabay_keys: str, topic: str, subtopic: str = "",
                  language: str = "English", mode: str = "table", system_prompt: str | None = None,
-                 html_template: str | None = None, pexels_key: str | None = None,
+                 html_template: str | None = None, custom_python: str | None = None, pexels_key: str | None = None,
                  youtube_token: str | None = None, facebook_page_id: str | None = None,
                  facebook_token: str | None = None, watermark: str = "", config: dict | None = None):
         self.cfg = config or load_config()
@@ -39,6 +39,7 @@ class ShortsOrchestrator:
         self.language = language or "English"
         self.mode = mode if mode in ("table", "story", "puzzle", "mixed") else "table"
         self.html_template = html_template
+        self.custom_python = custom_python
         self.watermark = watermark or ""
         self.yt_token = youtube_token
         self.fb_page, self.fb_token = facebook_page_id, facebook_token
@@ -76,7 +77,7 @@ class ShortsOrchestrator:
             raise RuntimeError(f"only {len(chosen)} rows have verified images")
         ctx = {"title": c["title"], "col_a_title": c["col_a_title"], "col_b_title": c["col_b_title"],
                "rows": chosen, "tips": c["tips"], "watermark": self.watermark}
-        return [render_html("table", ctx, self.html_template)]
+        return [render_html("table", ctx, self.html_template, self.custom_python)]
 
     def _build_story(self, c: dict):
         res = self._fetch([(c["image"]["query"], c["image"]["alt"])])[0]
@@ -84,7 +85,7 @@ class ShortsOrchestrator:
             raise RuntimeError("no verified image for the story")
         ctx = {"title": c["title"], "story": c["story"], "image": to_data_uri(res["bytes"]),
                "image_label": c["image"]["label"], "hashtags": c["hashtags"], "watermark": self.watermark}
-        return [render_html("story", ctx)]
+        return [render_html("story", ctx,custom_python=self.custom_python)]
 
     def _build_puzzle(self, c: dict):
         res = self._fetch([(o["query"], o["alt"]) for o in c["options"]])
@@ -94,8 +95,10 @@ class ShortsOrchestrator:
         base = {"title": c["title"], "question": c["question"], "options": opts,
                 "answer_index": c["answer_index"], "explanation": c["explanation"],
                 "hint": "⏳ A · B · C · D ?", "watermark": self.watermark}
-        return [render_html("puzzle", {**base, "reveal": False}),
-                render_html("puzzle", {**base, "reveal": True})]
+        return [
+            render_html("puzzle", {**base, "reveal": False}, custom_python=self.custom_python),
+            render_html("puzzle", {**base, "reveal": True}, custom_python=self.custom_python),
+        ]
 
     @staticmethod
     def _label_items(c: dict) -> list[dict]:
