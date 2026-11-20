@@ -249,6 +249,12 @@ with tab_topic:
         index=mode_keys.index(cur) if cur in mode_keys else 0,
         format_func=lambda k: MODES[k],
     )
+    # Add this right below the "Content mode" selectbox
+    requires_images = st.checkbox(
+        "Require images for this mode",
+        value=bool(cfg.get("requires_images", True)),
+        help="Uncheck this for Math, Quizzes, or Text-Only posters. It will skip image downloading and checks."
+    )
 
     # ── CUSTOM MODE UI ─────────────────────────────────────────────────
     # ── CUSTOM MODE UI ─────────────────────────────────────────────────
@@ -441,6 +447,7 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
 
             "timezone": user_timezone,
             "posting_times": posting_times,
+            "requires_images": requires_images,
 
             # YouTube branding
             "youtube_profile_pic_url": youtube_profile_pic_url,

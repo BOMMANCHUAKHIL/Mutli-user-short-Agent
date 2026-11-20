@@ -167,6 +167,7 @@ def run_multi_user_cycle():
                 system_prompt=user.get("system_prompt"),
                 html_template=user.get("html_template"),
                 custom_python=user.get("custom_python"),
+                requires_images=user.get("requires_images", True),
                 youtube_token=yt, facebook_page_id=fb_page, facebook_token=fb_token,
                 watermark=user.get("watermark") or "",
                 youtube_profile_pic=user.get("youtube_profile_pic_url"),

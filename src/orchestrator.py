@@ -103,6 +103,9 @@ class ShortsOrchestrator:
             facebook_watermark: str | None = None,
             subscribe_gif: str | None = None,
             custom_num_images: int = 0,
+            requires_images: bool = True,
+
+
     ):
         self.cfg = config or load_config()
         self.topic, self.sub = topic, subtopic
@@ -113,7 +116,7 @@ class ShortsOrchestrator:
         self.custom_python = custom_python
         self.watermark = watermark or ""
         self.custom_num_images = custom_num_images
-
+        self.requires_images = requires_images
         # Upload Targets
         self.yt_token = youtube_token if enable_youtube else None
         self.fb_page = facebook_page_id if enable_facebook else None
@@ -142,22 +145,32 @@ class ShortsOrchestrator:
 
     def _build_table(self, c: dict):
         rows = c["rows"]
-        title_lower = str(c.get("title", "")).lower()
 
-        # 1. IF IT IS A MATH TOPIC, SKIP THE REVIEWER ENTIRELY
-        is_math = any(
-            word in title_lower for word in ["math", "add", "sum", "subtract", "number", "arithmetic", "digit"])
+        # IF NO IMAGES ARE REQUIRED, SKIP EVERYTHING AND RETURN TEXT-ONLY ROWS
+        if not self.requires_images:
+            chosen = []
+            for i, r in enumerate(rows[:TABLE_ROWS_NEEDED]):
+                chosen.append({
+                    "tag": r["tag"],
+                    "a_label": r["a"]["label"],
+                    "a_img": "",  # Empty string instead of an image
+                    "b_label": r["b"]["label"],
+                    "b_img": "",  # Empty string instead of an image
+                })
+            ctx = {
+                "title": c["title"],
+                "col_a_title": c["col_a_title"],
+                "col_b_title": c["col_b_title"],
+                "rows": chosen,
+                "tips": c["tips"],
+                "watermark": self.watermark
+            }
+            return [render_html("table", ctx, self.html_template, self.custom_python)]
 
-        if not is_math:
-            items = [x for r in rows for x in (r["a"], r["b"])]
-            bad = find_mismatches(self.pool, self.language, items)
-            valid_rows = [
-                (i, r) for i, r in enumerate(rows)
-                if 2 * i not in bad and 2 * i + 1 not in bad
-            ]
-        else:
-            # For math, we don't care about images, so all rows are valid
-            valid_rows = [(i, r) for i, r in enumerate(rows)]
+        # --- NORMAL IMAGE LOGIC CONTINUES BELOW ---
+        items = [x for r in rows for x in (r["a"], r["b"])]
+        bad = find_mismatches(self.pool, self.language, items)
+        valid_rows = [ (i, r) for i, r in enumerate(rows) if 2 * i not in bad and 2 * i + 1 not in bad ]
 
         chosen = []
 
@@ -241,16 +254,13 @@ class ShortsOrchestrator:
 
     # ── new builder ────────────────────────────────────────────────────────
     def _build_custom(self, c: dict):
-        # We no longer check self.custom_html_template.
-        # It will ALWAYS use the CUSTOM_STARTER from the Python file.
         images = c.get("images") or []
-        if images:
+
+        if self.requires_images and images:
             res = self._fetch([(img["query"], img["alt"]) for img in images])
             if not all(res):
                 missing = [images[i]["label"] for i, r in enumerate(res) if not r]
-                raise RuntimeError(
-                    "could not fetch images for: " + ", ".join(missing)
-                )
+                raise RuntimeError("could not fetch images for: " + ", ".join(missing))
             image_uris = [to_data_uri(r["bytes"]) for r in res]
             labels = [img["label"] for img in images]
         else:
@@ -265,8 +275,7 @@ class ShortsOrchestrator:
             "images": image_uris,
             "labels": labels,
         }
-        # Use CUSTOM_STARTER directly
-        return [render_html("custom", ctx, CUSTOM_STARTER)]
+        return [render_html("custom", ctx, CUSTOM_STARTER, self.custom_python)]
 
     # ── main entry ─────────────────────────────────────────────────────
     def run_cycle(self) -> dict:
