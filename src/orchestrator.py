@@ -9,7 +9,7 @@ from .facebook_uploader import upload_reel
 from .food_fetcher import ImageFetcher, to_data_uri
 from .groq_pool import GroqPool
 from .html_renderer import render_many
-from .poster_composer import render_html
+from .poster_composer import render_html,CUSTOM_STARTER
 from .reviewer_agent import find_mismatches
 from .telugu_generator import ContentGenerator, TABLE_ROWS_NEEDED
 from .video_composer import compose_video, _next_music
@@ -78,35 +78,16 @@ def download_branding_image(url: str | None, name: str) -> str | None:
 class ShortsOrchestrator:
     def __init__(self, groq_key: str, pixabay_keys: str, topic: str, subtopic: str = "",
                  language: str = "English", mode: str = "table", system_prompt: str | None = None,
-                 html_template: str | None = None, pexels_key: str | None = None,
-                 youtube_token: str | None = None,
-                 facebook_page_id: str | None = None,
-                 facebook_token: str | None = None,
-                 watermark: str = "",
-                 youtube_profile_pic: str | None = None,
-                 facebook_profile_pic: str | None = None,
-                 youtube_watermark: str = "",
-                 facebook_watermark: str = "",
-                 subscribe_gif: str | None = None,
-                 config: dict | None = None,
-                 enable_youtube: bool = True,
-                 enable_facebook: bool = True,
-                 custom_html_template: str | None = None,
-                 custom_num_images: int | None = None):
+                 html_template: str | None = None, custom_python: str | None = None, pexels_key: str | None = None,
+                 youtube_token: str | None = None, facebook_page_id: str | None = None,
+                 facebook_token: str | None = None, watermark: str = "", config: dict | None = None):
         self.cfg = config or load_config()
         self.topic, self.sub = topic, subtopic
         self.language = language or "English"
-        self.mode = mode if mode in ("table", "story", "puzzle", "mixed") else "table"
+        # Change this line to include "custom":
+        self.mode = mode if mode in ("table", "story", "puzzle", "mixed", "custom") else "table"
         self.html_template = html_template
-        self.custom_html_template = (
-            custom_html_template if custom_html_template is not None
-            else self.cfg.get("custom_html_template")
-        )
-        self.custom_num_images = (
-            int(custom_num_images) if custom_num_images is not None
-            else int(self.cfg.get("custom_num_images") or 0)
-        )
-        self.watermark = watermark or ""
+        self.custom_python = custom_python
         self.watermark = watermark or ""
         self.yt_token = youtube_token if enable_youtube else None  # <-- NEW
         self.fb_page = facebook_page_id if enable_facebook else None  # <-- NEW
@@ -229,24 +210,10 @@ class ShortsOrchestrator:
             )
 
         if len(chosen) < TABLE_ROWS_NEEDED:
-            raise RuntimeError(
-                f"Only {len(chosen)}/{TABLE_ROWS_NEEDED} "
-                f"table rows have verified images. "
-                f"Original rows: {len(rows)}, "
-                f"valid rows: {len(valid_rows)}. "
-                "More valid content or image sources are required."
-            )
-
-        ctx = {
-            "title": c["title"],
-            "col_a_title": c["col_a_title"],
-            "col_b_title": c["col_b_title"],
-            "rows": chosen,
-            "tips": c["tips"],
-            "watermark": self.watermark,
-        }
-
-        return [render_html("table", ctx, self.html_template)]
+            raise RuntimeError(f"only {len(chosen)} rows have verified images")
+        ctx = {"title": c["title"], "col_a_title": c["col_a_title"], "col_b_title": c["col_b_title"],
+               "rows": chosen, "tips": c["tips"], "watermark": self.watermark}
+        return [render_html("table", ctx, self.html_template, self.custom_python)]
 
     def _build_story(self, c: dict):
         res = self._fetch([(c["image"]["query"], c["image"]["alt"])])[0]
@@ -254,7 +221,7 @@ class ShortsOrchestrator:
             raise RuntimeError("no verified image for the story")
         ctx = {"title": c["title"], "story": c["story"], "image": to_data_uri(res["bytes"]),
                "image_label": c["image"]["label"], "hashtags": c["hashtags"], "watermark": self.watermark}
-        return [render_html("story", ctx)]
+        return [render_html("story", ctx,custom_python=self.custom_python)]
 
     def _build_puzzle(self, c: dict):
         res = self._fetch([(o["query"], o["alt"]) for o in c["options"]])
@@ -264,8 +231,10 @@ class ShortsOrchestrator:
         base = {"title": c["title"], "question": c["question"], "options": opts,
                 "answer_index": c["answer_index"], "explanation": c["explanation"],
                 "hint": "⏳ A · B · C · D ?", "watermark": self.watermark}
-        return [render_html("puzzle", {**base, "reveal": False}),
-                render_html("puzzle", {**base, "reveal": True})]
+        return [
+            render_html("puzzle", {**base, "reveal": False}, custom_python=self.custom_python),
+            render_html("puzzle", {**base, "reveal": True}, custom_python=self.custom_python),
+        ]
 
     @staticmethod
     def _label_items(c: dict) -> list[dict]:
@@ -279,9 +248,8 @@ class ShortsOrchestrator:
 
     # ── new builder ────────────────────────────────────────────────────────
     def _build_custom(self, c: dict):
-        if not self.custom_html_template or not self.custom_html_template.strip():
-            raise RuntimeError("Custom mode requires an HTML template.")
-
+        # We no longer check self.custom_html_template.
+        # It will ALWAYS use the CUSTOM_STARTER from the Python file.
         images = c.get("images") or []
         if images:
             res = self._fetch([(img["query"], img["alt"]) for img in images])
@@ -304,7 +272,8 @@ class ShortsOrchestrator:
             "images": image_uris,
             "labels": labels,
         }
-        return [render_html("custom", ctx, self.custom_html_template)]
+        # Use CUSTOM_STARTER directly
+        return [render_html("custom", ctx, CUSTOM_STARTER)]
 
     # ── main entry ─────────────────────────────────────────────────────
     def run_cycle(self) -> dict:

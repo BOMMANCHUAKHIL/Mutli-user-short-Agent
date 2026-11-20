@@ -5,7 +5,7 @@ renderer never needs network or file access. User-supplied templates run in
 Jinja's SandboxedEnvironment.
 """
 import re
-
+from .custom_python import apply_custom_python
 from jinja2.sandbox import SandboxedEnvironment
 
 FONT = "'ShortsFont','Noto Sans Telugu','Noto Sans Devanagari','Noto Sans',sans-serif"
@@ -116,20 +116,26 @@ p{font-size:38px;line-height:1.5;text-align:center;margin-top:24px}
 BUILTIN = {"table": TABLE_TEMPLATE, "story": STORY_TEMPLATE, "puzzle": PUZZLE_TEMPLATE}
 
 
-def render_html(mode: str, context: dict, custom_template: str | None = None) -> str:
-    """Render a poster. Table and Custom modes can use a user-supplied template."""
-    if mode == "custom":
-        if not custom_template or not custom_template.strip():
-            raise ValueError("Custom mode requires an HTML template.")
-        src = custom_template
-    elif mode == "table" and custom_template and custom_template.strip():
-        src = custom_template
-    else:
-        src = BUILTIN[mode]
-    return _env.from_string(src).render(**context)
+# replace the existing render_html at the bottom with:
+def render_html(
+    mode: str,
+    context: dict,
+    custom_template: str | None = None,
+    custom_python: str | None = None,
+) -> str:
+    """Render a poster.
 
-def render_html(mode: str, context: dict, custom_template: str | None = None) -> str:
-    """Render a poster. A custom template (from the dashboard) is used for table mode only."""
-    src = custom_template.strip() if (mode == "table" and custom_template and custom_template.strip()) \
+    • Custom HTML template (Jinja) is used for **table mode only**.
+    • Custom Python (`def process(context) -> dict`) runs **for all modes**,
+      before the template is rendered.
+    """
+    ctx = dict(context)
+    if custom_python and custom_python.strip():
+        ctx = apply_custom_python(ctx, custom_python)
+
+    src = (
+        custom_template.strip()
+        if (mode == "table" and custom_template and custom_template.strip())
         else BUILTIN[mode]
-    return _env.from_string(src).render(**context)
+    )
+    return _env.from_string(src).render(**ctx)

@@ -58,6 +58,14 @@ DEFAULT_SYSTEM_PROMPT = (
     "You create accurate, engaging short-form video content. "
     "Every image query must describe exactly what the label says."
 )
+DEFAULT_CUSTOM_PYTHON = '''def process(context):
+    """Modify `context` before the poster is rendered. Return the dict."""
+    # Examples:
+    # context["title"] = context["title"].upper()
+    # if "story" in context:
+    #     context["story"] = context["story"] + "\\n\\nFollow for more!"
+    return context
+'''
 MODES = {
     "table": "Table (14 images + labels in one poster)",
     "story": "Story (1 picture + short story about it)",
@@ -98,7 +106,7 @@ def placeholder(color: str) -> str:
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
 
 
-def mock_context(mode: str) -> dict:
+def mock_context(mode: str, num_images: int = 0) -> dict:
     cols = ["#e76f51", "#2a9d8f", "#e9c46a", "#457b9d", "#8d5a97", "#6a994e", "#bc4749", "#277da1"]
     if mode == "table":
         rows = [{"tag": f"Row {i+1}", "a_label": f"Item A{i+1}", "a_img": placeholder(cols[i % 8]),
@@ -243,6 +251,7 @@ with tab_topic:
     )
 
     # ── CUSTOM MODE UI ─────────────────────────────────────────────────
+    # ── CUSTOM MODE UI ─────────────────────────────────────────────────
     custom_num_images = int(cfg.get("custom_num_images") or 0)
     custom_html_template = None
 
@@ -259,12 +268,10 @@ with tab_topic:
             "| `watermark` | str | Your watermark text |\n"
             "| `images` | list[str] | Image `data:` URIs (length = number below) |\n"
             "| `labels` | list[str] | One label per image (from AI) |\n\n"
-            "- Set **number of images to 0** for a text-only poster — no image search is performed.\n"
-            "- Images arrive as `data:` URIs; the renderer blocks all network access.\n"
-            "- Use `{{ value|clean_label }}` to tidy AI text.\n"
-            "- Rendered at **1080 × 1920**."
+            "- Set **number of images to 0** for a text-only poster — no image search is performed."
         )
 
+        # ADD THIS BACK:
         custom_num_images = st.number_input(
             "Number of images your template needs (0 = text-only)",
             min_value=0, max_value=20,
@@ -273,13 +280,8 @@ with tab_topic:
             key="custom_num_images_input",
         )
 
-        custom_html_template = st.text_area(
-            "Your HTML template (Jinja2)",
-            value=cfg.get("custom_html_template") or CUSTOM_STARTER,
-            height=460,
-            key="custom_html_template_input",
-        )
-
+        st.success(
+            "✅ Custom mode will automatically use the built-in Python Template. To change the design, edit `CUSTOM_STARTER` in `src/poster_composer.py`.")
     language = st.text_input(
         "Label language", value=cfg.get("language", "English"),
         help="e.g. English, Telugu, Hindi",
@@ -341,37 +343,49 @@ with tab_keys:
     facebook_token = st.text_input(f"Facebook Page access token  ({saved('facebook_token')})", type="password")
 
 # ── TAB 3: template ──
+# ── TAB 3: template ──
 with tab_template:
+    # ── HTML (table mode only) ─────────────────────────────────────
+    st.subheader("🎨 Custom HTML — Table mode only")
     st.caption("Story and Puzzle always use the built-in designs. Table mode can use your own HTML.")
-    use_custom = st.checkbox("Use my own HTML template for Table mode", value=bool(cfg.get("html_template")))
+    use_custom = st.checkbox("Use my own HTML template for Table mode",
+                             value=bool(cfg.get("html_template")))
     html_template = None
     if use_custom:
         html_template = st.text_area(
             "HTML template (Jinja). Variables: title, col_a_title, col_b_title, rows "
             "(tag, a_label, a_img, b_label, b_img), tips, watermark. No JavaScript runs.",
             value=cfg.get("html_template") or TABLE_TEMPLATE, height=380)
-    # ── existing "Use my own HTML template for Table" block stays ──
-    ...
 
-    pv_modes = ["table", "story", "puzzle"]
-    if custom_html_template or cfg.get("custom_html_template"):
-        pv_modes.append("custom")
+    st.divider()
 
-    pv_mode = st.radio("Preview", pv_modes, horizontal=True)
+    # ── Python (all modes) ────────────────────────────────────────
+    st.subheader("🐍 Custom Python — all modes")
+    st.caption(
+        "Optional. Define `def process(context): ...` to transform the content "
+        "dict before rendering. Imports, dunder access and file/network access are blocked. "
+        "5‑second timeout on Unix."
+    )
+    use_python = st.checkbox("Use my own Python code",
+                             value=bool(cfg.get("custom_python")))
+    custom_python = None
+    if use_python:
+        custom_python = st.text_area(
+            "Python — must define `process(context) -> dict`",
+            value=cfg.get("custom_python") or DEFAULT_CUSTOM_PYTHON, height=300)
 
+    st.divider()
+
+    # ── Preview ──────────────────────────────────────────────────
+    pv_mode = st.radio("Preview", ["table", "story", "puzzle"], horizontal=True)
     if st.button("Show preview"):
         try:
-            if pv_mode == "custom":
-                tpl = custom_html_template or cfg.get("custom_html_template")
-                if not tpl:
-                    st.error("No custom template provided.")
-                    st.stop()
-                n = int(custom_num_images if custom_num_images is not None
-                        else cfg.get("custom_num_images") or 0)
-                show_preview(render_html("custom", mock_context("custom", n), tpl))
-            else:
-                custom = html_template if (pv_mode == "table" and use_custom) else None
-                show_preview(render_html(pv_mode, mock_context(pv_mode), custom))
+            custom_html = html_template if (pv_mode == "table" and use_custom) else None
+            show_preview(render_html(
+                pv_mode, mock_context(pv_mode),
+                custom_template=custom_html,
+                custom_python=custom_python,
+            ))
         except Exception as e:
             st.error(f"Template error: {e}")
 
@@ -381,6 +395,20 @@ with tab_template:
 st.divider()
 
 if st.button("💾 Save settings", type="primary", use_container_width=True):
+    row = {
+        "user_id": user["id"], "email": user["email"],
+        "main_topic": main_topic.strip(), "sub_topics": sub_topics.strip(),
+        "content_mode": content_mode, "language": language.strip() or "English",
+        "watermark": watermark.strip() or None,
+        "system_prompt": system_prompt, "html_template": html_template,"custom_python": custom_python,
+        "facebook_page_id": facebook_page_id.strip() or None,
+        "is_active": is_active,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    for field, value in [("groq_key", groq_key), ("pixabay_keys", pixabay_keys), ("pexels_key", pexels_key),
+                         ("youtube_token", youtube_token), ("facebook_token", facebook_token)]:
+        if value.strip():
+            row[field] = encrypt_key(value.strip())
     try:
         if live_enabled and not valid_times(live_times):
             raise ValueError("Live go-live time must look like 20:00 (or 09:30, 21:00).")
@@ -436,11 +464,7 @@ if st.button("💾 Save settings", type="primary", use_container_width=True):
             "live_privacy": live_privacy,
             "live_layout": live_layout,
             "custom_num_images": int(custom_num_images or 0),
-            "custom_html_template": (
-                custom_html_template.strip()
-                if content_mode == "custom" and custom_html_template
-                else None
-            ),
+            "custom_html_template": None,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
