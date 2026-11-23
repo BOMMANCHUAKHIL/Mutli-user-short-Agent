@@ -46,6 +46,25 @@ custom_num_images = int(cfg.get("custom_num_images") or 0)
 # Initialize branding & schedule variables
 youtube_profile_pic_url = cfg.get("youtube_profile_pic_url")
 facebook_profile_pic_url = cfg.get("facebook_profile_pic_url")
+if youtube_profile_pic_url:
+    st.markdown("**YouTube Profile Picture Preview**")
+    st.image(
+        youtube_profile_pic_url,
+        width=150,
+        caption="YouTube Profile Picture",
+    )
+else:
+    st.info("No YouTube profile picture uploaded.")
+
+if facebook_profile_pic_url:
+    st.markdown("**Facebook Profile Picture Preview**")
+    st.image(
+        facebook_profile_pic_url,
+        width=150,
+        caption="Facebook Profile Picture",
+    )
+else:
+    st.info("No Facebook profile picture uploaded.")
 youtube_watermark = cfg.get("youtube_watermark") or ""
 facebook_watermark = cfg.get("facebook_watermark") or ""
 user_timezone = cfg.get("timezone", "Asia/Kolkata")
@@ -211,68 +230,121 @@ with tab_keys:
     facebook_token = st.text_input(f"Facebook Page access token ({saved('facebook_token')})", type="password")
 
 # ── TAB 3: template ──
+
 with tab_template:
     use_custom = False
-    html_template = None
-    custom_num_images = 0
 
-    # Conditional UI based on content_mode
+    # Conditional UI based on current content mode
     if content_mode == "table":
         st.subheader("🎨 Custom HTML — Table mode only")
-        use_custom = st.checkbox("Use my own HTML template for Table mode", value=bool(html_template))
+
+        use_custom = st.checkbox(
+            "Use my own HTML template for Table mode",
+            value=bool(html_template),
+            key="use_custom_table_html"
+        )
+
         if use_custom:
             html_template = st.text_area(
                 "HTML template (Jinja). Variables: title, col_a_title, rows, tips, watermark.",
-                value=html_template or TABLE_TEMPLATE, height=380)
+                value=html_template or TABLE_TEMPLATE,
+                height=380,
+                key="table_html_template"
+            )
+        else:
+            html_template = None
 
     elif content_mode == "custom":
         st.subheader("🧩 Custom template")
-        st.markdown("Variables received: `title`, `text`, `caption`, `hashtags`, `watermark`, `images`, `labels`.")
-        custom_num_images = st.number_input("Number of images your template needs (0 = text-only)", min_value=0,
-                                            max_value=20, value=custom_num_images)
+
+        st.markdown(
+            "Variables received: `title`, `text`, `caption`, "
+            "`hashtags`, `watermark`, `images`, `labels`."
+        )
+
+        custom_num_images = st.number_input(
+            "Number of images your template needs (0 = text-only)",
+            min_value=0,
+            max_value=20,
+            value=custom_num_images,
+            key="custom_template_image_count"
+        )
+
         html_template = st.text_area(
             "HTML template (Jinja)",
-            value=html_template or CUSTOM_STARTER, height=380)
+            value=html_template or CUSTOM_STARTER,
+            height=380,
+            key="custom_html_template"
+        )
 
     else:
-        st.info(f"ℹ️ {content_mode.capitalize()} mode uses the built-in design. No custom HTML needed here.")
+        html_template = None
+        st.info(
+            f"ℹ️ {content_mode.capitalize()} mode uses "
+            "the built-in design. No custom HTML needed here."
+        )
 
     st.divider()
 
-    # ── Python (all modes) ────────────────────────────────────────
+    # Custom Python — all modes
     st.subheader("🐍 Custom Python — all modes")
-    use_python = st.checkbox("Use my own Python code", value=bool(custom_python))
+
+    use_python = st.checkbox(
+        "Use my own Python code",
+        value=bool(custom_python),
+        key="use_custom_python"
+    )
+
     if use_python:
         custom_python = st.text_area(
-            "Python — must define `process(context) -> dict`",
-            value=custom_python or DEFAULT_CUSTOM_PYTHON, height=300)
+            "Python — must define process(context) -> dict",
+            value=custom_python or DEFAULT_CUSTOM_PYTHON,
+            height=300,
+            key="custom_python_code"
+        )
+    else:
+        custom_python = None
 
     st.divider()
 
-    # ── Preview ──────────────────────────────────────────────────
+    # Preview
     st.subheader("👁️ Preview Poster")
-    # Only show preview options relevant to current mode, or all.
-    pv_mode = st.radio("Preview Mode", ["table", "story", "puzzle", "custom"], horizontal=True,
-                       index=["table", "story", "puzzle", "custom"].index(content_mode) if content_mode in ["table",
-                                                                                                            "story",
-                                                                                                            "puzzle",
-                                                                                                            "custom"] else 0)
+
+    pv_modes = ["table", "story", "puzzle", "custom"]
+
+    pv_mode = st.radio(
+        "Preview Mode",
+        pv_modes,
+        horizontal=True,
+        index=pv_modes.index(content_mode)
+        if content_mode in pv_modes else 0
+    )
 
     if st.button("Show preview"):
         try:
-            # If the preview mode matches current custom settings, apply them
             is_active_preview = (pv_mode == content_mode)
-            custom_html = html_template if (
-                        is_active_preview and pv_mode in ["table", "custom"] and html_template) else None
+
+            custom_html = (
+                html_template
+                if is_active_preview
+                and pv_mode in ["table", "custom"]
+                else None
+            )
+
             python_code = custom_python if is_active_preview else None
 
-            show_preview(render_html(
-                pv_mode, mock_context(pv_mode, custom_num_images),
-                custom_template=custom_html,
-                custom_python=python_code,
-            ))
+            show_preview(
+                render_html(
+                    pv_mode,
+                    mock_context(pv_mode, int(custom_num_images)),
+                    custom_template=custom_html,
+                    custom_python=python_code
+                )
+            )
+
         except Exception as e:
             st.error(f"Template error: {e}")
+
 
 # ── TAB 4: publish ──
 with tab_publish:
