@@ -46,25 +46,6 @@ custom_num_images = int(cfg.get("custom_num_images") or 0)
 # Initialize branding & schedule variables
 youtube_profile_pic_url = cfg.get("youtube_profile_pic_url")
 facebook_profile_pic_url = cfg.get("facebook_profile_pic_url")
-if youtube_profile_pic_url:
-    st.markdown("**YouTube Profile Picture Preview**")
-    st.image(
-        youtube_profile_pic_url,
-        width=150,
-        caption="YouTube Profile Picture",
-    )
-else:
-    st.info("No YouTube profile picture uploaded.")
-
-if facebook_profile_pic_url:
-    st.markdown("**Facebook Profile Picture Preview**")
-    st.image(
-        facebook_profile_pic_url,
-        width=150,
-        caption="Facebook Profile Picture",
-    )
-else:
-    st.info("No Facebook profile picture uploaded.")
 youtube_watermark = cfg.get("youtube_watermark") or ""
 facebook_watermark = cfg.get("facebook_watermark") or ""
 user_timezone = cfg.get("timezone", "Asia/Kolkata")
@@ -203,19 +184,24 @@ with tab_topic:
         enable_facebook = st.toggle("Upload to Facebook", value=cfg.get("enable_facebook", True))
 
     st.subheader("YouTube Branding")
-    youtube_profile_pic = st.file_uploader("YouTube profile picture", type=["png", "jpg", "jpeg", "webp"], key="yt_pic")
+    youtube_profile_pic = st.file_uploader(
+        "YouTube profile picture",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="yt_pic"
+    )
+
     if youtube_profile_pic_url:
         st.image(youtube_profile_pic_url, width=120)
-    youtube_watermark = st.text_input("YouTube watermark / Channel handle", value=youtube_watermark,
-                                      placeholder="@KathaZap")
 
     st.subheader("Facebook Branding")
-    facebook_profile_pic = st.file_uploader("Facebook Page profile picture", type=["png", "jpg", "jpeg", "webp"],
-                                            key="fb_pic")
+    facebook_profile_pic = st.file_uploader(
+        "Facebook Page profile picture",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="fb_pic"
+    )
+
     if facebook_profile_pic_url:
         st.image(facebook_profile_pic_url, width=120)
-    facebook_watermark = st.text_input("Facebook watermark / Page name", value=facebook_watermark,
-                                       placeholder="KathaZap")
 
 # ── TAB 2: keys ──
 with tab_keys:
