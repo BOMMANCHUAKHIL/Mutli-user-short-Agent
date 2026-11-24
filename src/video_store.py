@@ -15,7 +15,7 @@ def _names(sb, user_id: str) -> list[str]:
     return sorted((i["name"] for i in items if i.get("name", "").endswith(".mp4")), reverse=True)
 
 
-def save_video(sb, user_id: str, local_path: str, keep: int = 6) -> str:
+def save_video(sb, user_id: str, local_path: str, keep: int = 50) -> str:
     p = Path(local_path)
     remote = f"{user_id}/{p.stem}.mp4"
     sb.storage.from_(BUCKET).upload(
@@ -29,7 +29,7 @@ def save_video(sb, user_id: str, local_path: str, keep: int = 6) -> str:
     return remote
 
 
-def latest_videos(sb, user_id: str, dest_dir: Path, n: int = 3) -> list[Path]:
+def latest_videos(sb, user_id: str, dest_dir: Path, n: int = 50) -> list[Path]:
     """Download the n newest videos (newest first) into dest_dir."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     out = []

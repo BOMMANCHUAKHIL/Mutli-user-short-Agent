@@ -10,6 +10,7 @@ YouTube Live streamer.
 """
 
 import json
+import random
 import shutil
 import subprocess
 import time
@@ -231,42 +232,16 @@ def build_loop(
             f"format=yuv420p[v]"
         )
 
-        has_audio = _has_audio(ff, source)
-
-        if has_audio:
-            inputs = [
-                "-i", str(source),
-            ]
-
-            audio_map = [
-                "-map", "0:a:0",
-            ]
-
-        else:
-            print("No audio found. Adding silent audio.")
-
-            inputs = [
-                "-i", str(source),
-                "-f", "lavfi",
-                "-i",
-                "anullsrc=channel_layout=stereo:sample_rate=44100",
-            ]
-
-            audio_map = [
-                "-map", "1:a:0",
-                "-shortest",
-            ]
-
         command = [
             ff,
             "-y",
             "-hide_banner",
-            *inputs,
+            "-i", str(source),
 
             "-filter_complex", filter_graph,
 
             "-map", "[v]",
-            *audio_map,
+            "-an",  # Completely remove original video audio.
 
             "-c:v", "libx264",
             "-preset", "veryfast",
@@ -277,14 +252,11 @@ def build_loop(
             "-g", str(FPS * 2),
             "-pix_fmt", "yuv420p",
 
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-ar", "44100",
-            "-ac", "2",
-
             "-movflags", "+faststart",
             str(destination),
         ]
+
+        _run(command)
 
         _run(command)
 
@@ -336,6 +308,117 @@ def build_loop(
 
     return loop_file
 
+
+# ---------------------------------------------------------
+# Background music playlist
+# ---------------------------------------------------------
+
+def build_music_playlist(
+    ff: str,
+    workdir: Path,
+    music_dir: Path,
+) -> Path:
+    """
+    Find all MP3 files, shuffle them, normalize them,
+    and combine them into one continuous playlist.
+    """
+
+    music_dir = Path(music_dir)
+
+    if not music_dir.exists():
+        raise RuntimeError(
+            f"Music directory does not exist: {music_dir}"
+        )
+
+    tracks = [
+        path
+        for path in music_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() == ".mp3"
+    ]
+
+    if not tracks:
+        raise RuntimeError(
+            f"No MP3 music files found in: {music_dir}"
+        )
+
+    # Shuffle once per live session.
+    random.shuffle(tracks)
+
+    print(f"\nFound {len(tracks)} music track(s).")
+
+    normalized_dir = workdir / "music_tracks"
+    normalized_dir.mkdir(parents=True, exist_ok=True)
+
+    normalized_tracks = []
+
+    for index, source in enumerate(tracks, start=1):
+        destination = normalized_dir / f"track_{index:03d}.m4a"
+
+        print(
+            f"Preparing music {index}/{len(tracks)}: "
+            f"{source.name}"
+        )
+
+        _run([
+            ff,
+            "-y",
+            "-hide_banner",
+            "-i", str(source),
+            "-map", "0:a:0",
+            "-vn",
+            "-c:a", "aac",
+            "-b:a", "160k",
+            "-ar", "44100",
+            "-ac", "2",
+            str(destination),
+        ])
+
+        if not destination.exists() or destination.stat().st_size == 0:
+            raise RuntimeError(
+                f"Music conversion failed: {source.name}"
+            )
+
+        normalized_tracks.append(destination)
+
+    # All normalized files have the same audio format.
+    listing = normalized_dir / "music_list.txt"
+
+    listing.write_text(
+        "".join(
+            f"file '{track.name}'\n"
+            for track in normalized_tracks
+        ),
+        encoding="utf-8",
+    )
+
+    playlist = workdir / "music_playlist.m4a"
+
+    print("\nCombining shuffled music tracks...")
+
+    _run(
+        [
+            ff,
+            "-y",
+            "-hide_banner",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", "music_list.txt",
+            "-c", "copy",
+            "-movflags", "+faststart",
+            playlist.name,
+        ],
+        cwd=normalized_dir,
+    )
+
+    if not playlist.exists() or playlist.stat().st_size == 0:
+        raise RuntimeError("Music playlist was not created.")
+
+    print(
+        f"Music playlist ready: {playlist} "
+        f"({len(tracks)} tracks)"
+    )
+
+    return playlist
 
 # ---------------------------------------------------------
 # YouTube Live API
@@ -517,10 +600,10 @@ def _transition(
 # ---------------------------------------------------------
 # FFmpeg RTMP streaming
 # ---------------------------------------------------------
-
 def _spawn_ffmpeg(
     ff: str,
     loop: Path,
+    music_playlist: Path,
     rtmp_url: str,
     log_path: Path,
 ) -> subprocess.Popen:
@@ -535,10 +618,23 @@ def _spawn_ffmpeg(
                 ff,
                 "-hide_banner",
                 "-loglevel", "warning",
+
+                # Video input: repeat forever.
                 "-re",
                 "-stream_loop", "-1",
                 "-i", str(loop),
+
+                # Music input: repeat the complete playlist.
+                "-stream_loop", "-1",
+                "-i", str(music_playlist),
+
+                # Video from input 0, audio from input 1.
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+
+                # Both inputs are already normalized.
                 "-c", "copy",
+
                 "-flvflags", "no_duration_filesize",
                 "-f", "flv",
                 rtmp_url,
@@ -604,6 +700,19 @@ def run_live(
         layout,
     )
 
+    # Music directory relative to the repository root.
+    music_dir = (
+            Path(__file__).resolve().parent.parent
+            / "assets"
+            / "musiclive"
+    )
+
+    music_playlist = build_music_playlist(
+        ff,
+        workdir,
+        music_dir,
+    )
+
     stream = get_or_create_stream(yt)
 
     ingestion = stream["cdn"]["ingestionInfo"]
@@ -641,6 +750,7 @@ def run_live(
         proc = _spawn_ffmpeg(
             ff,
             loop,
+            music_playlist,
             rtmp_url,
             ffmpeg_log,
         )
@@ -689,6 +799,7 @@ def run_live(
                 proc = _spawn_ffmpeg(
                     ff,
                     loop,
+                    music_playlist,
                     rtmp_url,
                     ffmpeg_log,
                 )
