@@ -272,24 +272,20 @@ with tab_template:
 
     st.divider()
 
-    # Custom Python — all modes
-    st.subheader("🐍 Custom Python — all modes")
+    # Custom Python — always visible
+    st.subheader("🐍 Custom Python Code")
 
-    use_python = st.checkbox(
-        "Use my own Python code",
-        value=bool(custom_python),
-        key="use_custom_python"
+    st.markdown(
+        "Write your Python logic here. "
+        "The function must define process(context) and return the modified context."
     )
 
-    if use_python:
-        custom_python = st.text_area(
-            "Python — must define process(context) -> dict",
-            value=custom_python or DEFAULT_CUSTOM_PYTHON,
-            height=300,
-            key="custom_python_code"
-        )
-    else:
-        custom_python = None
+    custom_python = st.text_area(
+        "Python — process(context) -> dict",
+        value=custom_python or DEFAULT_CUSTOM_PYTHON,
+        height=450,
+        key="custom_python_code"
+    )
 
     st.divider()
 
