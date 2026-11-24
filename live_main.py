@@ -24,7 +24,7 @@ from src.live_streamer import LiveScopeError, explain_http_error, run_live
 from src.video_store import latest_videos
 
 WINDOW_MIN = int(os.environ.get("LIVE_WINDOW_MIN", "30"))   # how late after the slot we may still start
-CLIPS_PER_LOOP = 3
+CLIPS_PER_LOOP = 50
 DEFAULT_TITLE = "{topic} • Live Shorts Loop • {date}"
 
 
