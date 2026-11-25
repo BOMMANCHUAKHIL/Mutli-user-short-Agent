@@ -275,7 +275,14 @@ class ShortsOrchestrator:
             "images": image_uris,
             "labels": labels,
         }
-        return [render_html("custom", ctx, CUSTOM_STARTER, self.custom_python)]
+        return [
+            render_html(
+                "custom",
+                ctx,
+                self.html_template or CUSTOM_STARTER,
+                self.custom_python
+            )
+        ]
 
     # ── main entry ─────────────────────────────────────────────────────
     def run_cycle(self) -> dict:
