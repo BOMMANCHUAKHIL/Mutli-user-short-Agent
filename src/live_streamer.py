@@ -26,8 +26,8 @@ from googleapiclient.errors import HttpError
 
 LIVE_SCOPES = {
     "https://www.googleapis.com/auth/youtube",
-    "https://www.googleapis.com/auth/youtube.force-ssl",
 }
+
 
 STREAM_TITLE = "ShortsAgent reusable stream"
 
@@ -147,29 +147,59 @@ def explain_http_error(exc: HttpError) -> str:
 # ---------------------------------------------------------
 
 def load_credentials(token_json: str) -> Credentials:
-    info = json.loads(token_json)
+    """Load, validate and refresh YouTube OAuth credentials."""
 
+    try:
+        info = json.loads(token_json)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Invalid YouTube OAuth token JSON.") from exc
+
+    if not isinstance(info, dict):
+        raise RuntimeError("YouTube OAuth token must be a JSON object.")
+
+    # Normalize the scopes returned by Google.
     granted = info.get("scopes") or []
 
     if isinstance(granted, str):
         granted = granted.split()
 
-    if not granted or not (LIVE_SCOPES & set(granted)):
+    granted = {
+        str(scope).strip()
+        for scope in granted
+        if str(scope).strip()
+    }
+
+    # YouTube full-access scope supports Shorts uploads and Live API.
+    if not LIVE_SCOPES.issubset(granted):
         raise LiveScopeError(
-            "Missing YouTube Live authorization. "
-            "Please reconnect the Google account with Live permissions."
+            "Missing YouTube authorization scope. "
+            f"Required: {', '.join(sorted(LIVE_SCOPES))}. "
+            f"Granted: {', '.join(sorted(granted)) or 'None'}. "
+            "Reconnect Google and save the newly generated token."
         )
 
+    # Create credentials using the same OAuth client that generated the token.
     creds = Credentials.from_authorized_user_info(info)
 
-    if not creds.valid:
-        if not creds.refresh_token:
-            raise RuntimeError(
-                "YouTube token expired and has no refresh token. "
-                "Generate a new Live OAuth token."
-            )
+    if not creds.refresh_token:
+        raise RuntimeError(
+            "YouTube OAuth token has no refresh token. "
+            "Reconnect Google with offline access."
+        )
 
-        creds.refresh(Request())
+    # Refresh expired or otherwise invalid credentials.
+    if not creds.valid:
+        try:
+            creds.refresh(Request())
+        except Exception as exc:
+            raise RuntimeError(
+                "YouTube OAuth refresh failed. "
+                "Reconnect the Google account and generate a new token."
+            ) from exc
+
+    print("YouTube OAuth authorization verified.")
+    print("YouTube Live scope: available.")
+    print("OAuth credentials: valid.")
 
     return creds
 
@@ -258,7 +288,7 @@ def build_loop(
 
         _run(command)
 
-        _run(command)
+
 
         if not destination.exists() or destination.stat().st_size == 0:
             raise RuntimeError(
@@ -391,7 +421,7 @@ def build_music_playlist(
         encoding="utf-8",
     )
 
-    playlist = workdir / "music_playlist.m4a"
+    playlist = normalized_dir / "music_playlist.m4a"
 
     print("\nCombining shuffled music tracks...")
 
