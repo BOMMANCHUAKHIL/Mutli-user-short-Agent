@@ -1,6 +1,7 @@
 """Multi-user worker run by GitHub Actions: one random sub-topic and one video per active user."""
 import os
 import random
+import json
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
@@ -179,19 +180,55 @@ def run_multi_user_cycle():
             )
 
             r = orch.run_cycle()
-            # Save refreshed YouTube OAuth credentials for this user.
+
+            # Save refreshed YouTube OAuth credentials safely.
             updated_youtube_token = r.get("youtube_token_json")
 
             if updated_youtube_token:
-                encrypted_token = encrypt_key(updated_youtube_token)
+                required_scope = "https://www.googleapis.com/auth/youtube"
 
-                sb.table("user_configs").update({
-                    "youtube_token": encrypted_token,
-                }).eq(
-                    "user_id", user["user_id"]
-                ).execute()
+                try:
+                    updated_data = json.loads(updated_youtube_token)
+                    old_data = json.loads(yt) if yt else {}
 
-                print("YouTube credentials refreshed/saved for this user.")
+                    # A refresh response may omit scopes. Preserve the original
+                    # scope only when it was already present in the saved token.
+                    updated_scopes = updated_data.get("scopes") or []
+                    if isinstance(updated_scopes, str):
+                        updated_scopes = updated_scopes.split()
+
+                    old_scopes = old_data.get("scopes") or []
+                    if isinstance(old_scopes, str):
+                        old_scopes = old_scopes.split()
+
+                    if not updated_scopes and required_scope in old_scopes:
+                        updated_data["scopes"] = old_scopes
+                        updated_scopes = old_scopes
+
+                    if required_scope not in updated_scopes:
+                        print(
+                            "WARNING: Refreshed token does not contain the "
+                            "required YouTube scope. Keeping the existing token."
+                        )
+                    else:
+                        encrypted_token = encrypt_key(
+                            json.dumps(updated_data)
+                        )
+
+                        sb.table("user_configs").update({
+                            "youtube_token": encrypted_token,
+                        }).eq(
+                            "user_id", user["user_id"]
+                        ).execute()
+
+                        print("YouTube credentials refreshed/saved safely.")
+
+                except Exception as token_error:
+                    print(
+                        "WARNING: Could not validate refreshed YouTube token. "
+                        "Existing token was not overwritten:",
+                        str(token_error)[:200]
+                    )
 
             # Keep the newest videos so the live-stream worker can loop them later.
             if user.get("live_enabled"):
