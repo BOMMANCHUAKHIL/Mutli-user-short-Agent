@@ -157,7 +157,8 @@ def load_credentials(token_json: str) -> Credentials:
     if not isinstance(info, dict):
         raise RuntimeError("YouTube OAuth token must be a JSON object.")
 
-    # Normalize the scopes returned by Google.
+
+    # Read scopes from the saved OAuth token.
     granted = info.get("scopes") or []
 
     if isinstance(granted, str):
@@ -169,13 +170,14 @@ def load_credentials(token_json: str) -> Credentials:
         if str(scope).strip()
     }
 
-    # YouTube full-access scope supports Shorts uploads and Live API.
-    if not LIVE_SCOPES.issubset(granted):
+    required_scope = "https://www.googleapis.com/auth/youtube"
+
+    if required_scope not in granted:
         raise LiveScopeError(
             "Missing YouTube authorization scope. "
-            f"Required: {', '.join(sorted(LIVE_SCOPES))}. "
+            f"Required: {required_scope}. "
             f"Granted: {', '.join(sorted(granted)) or 'None'}. "
-            "Reconnect Google and save the newly generated token."
+            "Generate and save a fresh YouTube token."
         )
 
     # Create credentials using the same OAuth client that generated the token.
