@@ -192,6 +192,12 @@ with tab_topic:
 
     if youtube_profile_pic_url:
         st.image(youtube_profile_pic_url, width=120)
+        youtube_watermark = st.text_input(
+            "YouTube Watermark Text",
+            value=youtube_watermark,
+            placeholder="@YourYouTubeChannel",
+            help="Text displayed as a watermark on YouTube videos."
+        )
 
     st.subheader("Facebook Branding")
     facebook_profile_pic = st.file_uploader(
@@ -202,6 +208,12 @@ with tab_topic:
 
     if facebook_profile_pic_url:
         st.image(facebook_profile_pic_url, width=120)
+        facebook_watermark = st.text_input(
+            "Facebook Watermark Text",
+            value=facebook_watermark,
+            placeholder="@YourFacebookPage",
+            help="Text displayed as a watermark on Facebook videos."
+        )
 
 # ── TAB 2: keys ──
 with tab_keys:
