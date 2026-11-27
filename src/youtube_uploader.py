@@ -10,7 +10,7 @@ from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
 SCOPES = [
-    "https://www.googleapis.com/auth/youtube.upload"
+    "https://www.googleapis.com/auth/youtube"
 ]
 
 
@@ -43,18 +43,21 @@ def upload_short(
             f"YouTube token is missing required fields: {', '.join(missing)}"
         )
 
+    # Preserve scopes from the saved OAuth token.
+    saved_scopes = info.get("scopes") or []
 
-    # Read saved scopes for debugging.
-    saved_scopes = info.get("scopes")
-    print("[YouTube OAuth] Saved token scopes:", repr(saved_scopes))
+    if isinstance(saved_scopes, str):
+        saved_scopes = saved_scopes.split()
 
-    # Do not send saved scopes during refresh.
-    credential_info = dict(info)
-    credential_info.pop("scopes", None)
+    saved_scopes = list(dict.fromkeys(saved_scopes))
 
-    creds = Credentials.from_authorized_user_info(
-        credential_info
-    )
+    print("[YouTube OAuth] Saved token scopes:", saved_scopes)
+
+    # Load credentials without removing scope metadata.
+    creds = Credentials.from_authorized_user_info(info)
+
+    print("[YouTube OAuth] Credential scopes:", creds.scopes)
+    print("[YouTube OAuth] Has refresh token:", bool(creds.refresh_token))
 
     print("[YouTube OAuth] Saved token scopes:", repr(saved_scopes))
     print("[YouTube OAuth] Credential scopes:", creds.scopes)
@@ -74,7 +77,11 @@ def upload_short(
                 f"YouTube OAuth refresh failed: {str(exc)[:500]}"
             ) from exc
 
-    updated_token_json = creds.to_json()
+    # Serialize refreshed credentials and preserve saved scope metadata.
+    updated_token_data = json.loads(creds.to_json())
+    updated_token_data["scopes"] = saved_scopes
+
+    updated_token_json = json.dumps(updated_token_data)
 
 
     yt = build(
